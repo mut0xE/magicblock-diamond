@@ -73,8 +73,8 @@ impl<'info> JoinRoom<'info> {
             .checked_add(1)
             .ok_or(DiamondError::MathOverflow)?;
 
-        room.entry_fee = room
-            .entry_fee
+        room.prize_pool = room
+            .prize_pool
             .checked_add(room.entry_fee)
             .ok_or(DiamondError::MathOverflow)?;
 
