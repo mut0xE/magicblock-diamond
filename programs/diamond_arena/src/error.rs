@@ -16,4 +16,10 @@ pub enum DiamondError {
 
     #[msg("Math overflow.")]
     MathOverflow,
+
+    #[msg("Player has already committed for this round.")]
+    AlreadyCommitted,
+
+    #[msg("Not enough players to start the match.")]
+    NotEnoughPlayers,
 }

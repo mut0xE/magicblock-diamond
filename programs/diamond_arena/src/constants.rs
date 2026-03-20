@@ -12,3 +12,6 @@ pub const PROTOCOL_FEE_BPS: u16 = 100; // 1%
 pub const MAX_NUMBER: u16 = 100;
 
 pub const DISCRIMINATOR: usize = 8;
+
+pub const COMMIT_DURATION: i64 = 30;
+pub const REVEAL_DURATION: i64 = 15;
