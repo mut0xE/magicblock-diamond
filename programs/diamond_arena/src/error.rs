@@ -22,4 +22,19 @@ pub enum DiamondError {
 
     #[msg("Not enough players to start the match.")]
     NotEnoughPlayers,
+
+    #[msg("Commit phase is over.")]
+    CommitPhaseOver,
+
+    #[msg("Invalid pick. Must be between 0 and 100.")]
+    InvalidPick,
+
+    #[msg("Invalid round.")]
+    InvalidRound,
+
+    #[msg("Player is not active.")]
+    PlayerNotActive,
+
+    #[msg("Room is not active.")]
+    RoomNotActive,
 }

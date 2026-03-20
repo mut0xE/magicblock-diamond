@@ -26,4 +26,12 @@ pub mod diamond_arena {
     pub fn join_room(ctx: Context<JoinRoom>, room_id: u64) -> Result<()> {
         ctx.accounts.handler(room_id, &ctx.bumps)
     }
+
+    pub fn start_match(ctx: Context<StartMatch>, room_id: u64) -> Result<()> {
+        ctx.accounts.handler(room_id)
+    }
+
+    pub fn submit_pick(ctx: Context<SubmitPick>, room_id: u64, round: u8, pick: u8) -> Result<()> {
+        ctx.accounts.handler(room_id, round, pick, &ctx.bumps)
+    }
 }
