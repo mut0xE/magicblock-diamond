@@ -13,11 +13,17 @@ use state::*;
 pub mod diamond_arena {
     use super::*;
 
-    pub fn initialize(ctx: Context<Initialize>) -> Result<()> {
-        msg!("Greetings from: {:?}", ctx.program_id);
-        Ok(())
+    pub fn create_room(
+        ctx: Context<CreateRoom>,
+        room_id: u64,
+        entry_fee: u64,
+        max_players: u8,
+    ) -> Result<()> {
+        ctx.accounts
+            .handler(room_id, entry_fee, max_players, &ctx.bumps)
+    }
+
+    pub fn join_room(ctx: Context<JoinRoom>, room_id: u64) -> Result<()> {
+        ctx.accounts.handler(room_id, &ctx.bumps)
     }
 }
-
-#[derive(Accounts)]
-pub struct Initialize {}
