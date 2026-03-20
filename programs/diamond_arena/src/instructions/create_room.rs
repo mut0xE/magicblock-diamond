@@ -30,8 +30,6 @@ impl<'info> CreateRoom<'info> {
         room_id: u64,
         entry_fee: u64,
         max_players: u8,
-        commit_duration_secs: i64,
-        reveal_duration_secs: i64,
         bumps: &CreateRoomBumps,
     ) -> Result<()> {
         // Validate max players
