@@ -24,6 +24,7 @@ import {
   submitPick,
   wait,
 } from "./helper";
+import { DEVNET_ASIA_VALIDATOR } from "./constants";
 const TREASURY = new PublicKey("treynHHxg2ftG3Hzn5dypVZX593Yss6uU54puVE614D");
 export const SYSTEM_PROGRAM = SystemProgram.programId;
 
@@ -52,12 +53,8 @@ describe("diamond_arena", () => {
 
     // Load players from files
     player1 = admin.payer;
-    player2 = loadPlayer(
-      "/Users/mut0xE/Downloads/keys/us68r6awy9CVvUkJ58jEY1Bxp4sjpuyQZZys41hNH9S.json"
-    );
-    player3 = loadPlayer(
-      "/Users/mut0xE/Downloads/keys/b1sjj58RYydHb7bm2PhQ1ALxWVayLd1VofW2o6gTQX4.json"
-    );
+    player2 = loadPlayer("");
+    player3 = loadPlayer("");
 
     console.log(`Player1 (Admin): ${player1.publicKey}`);
     console.log(`Player2: ${player2.publicKey}`);
@@ -154,6 +151,36 @@ describe("diamond_arena", () => {
       );
 
       expect(tx).to.exist;
+    });
+
+    it("delegate the room pda to ER", async () => {
+      const start = Date.now();
+      const tx = await program.methods
+        .delegateRoom(roomId)
+        .accounts({
+          payer: player1.publicKey,
+          //@ts-ignore
+          room: pdas.room,
+          validator: DEVNET_ASIA_VALIDATOR,
+        })
+        .remainingAccounts([
+          { pubkey: DEVNET_ASIA_VALIDATOR, isWritable: false, isSigner: false },
+        ])
+        .transaction();
+      const txHash = await provider.sendAndConfirm(
+        tx,
+        [provider.wallet.payer],
+        {
+          skipPreflight: true,
+          commitment: "confirmed",
+        }
+      );
+      const duration = Date.now() - start;
+
+      logTransactionResult(
+        `${duration}ms (Base Layer) Delegate txHash`,
+        txHash
+      );
     });
 
     it("should start the match", async () => {

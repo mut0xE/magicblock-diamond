@@ -1,4 +1,5 @@
 use anchor_lang::prelude::*;
+use ephemeral_rollups_sdk::anchor::ephemeral;
 
 declare_id!("E6ZxrJxuJ2mcAuqSU5JD3GdWYWWkxUddz4i8QqujFxR2");
 mod constants;
@@ -9,7 +10,9 @@ mod state;
 use instructions::*;
 
 #[program]
+#[ephemeral]
 pub mod diamond_arena {
+
     use super::*;
 
     pub fn initialze_config(
@@ -51,5 +54,9 @@ pub mod diamond_arena {
 
     pub fn settle_match(ctx: Context<SettleMatch>, room_id: u64) -> Result<()> {
         ctx.accounts.handler(room_id)
+    }
+    pub fn delegate_room(ctx: Context<DelegateRoom>, room_id: u64) -> Result<()> {
+        msg!("Delegating room {} to ER validator", room_id);
+        DelegateRoom::handler(ctx, room_id)
     }
 }
