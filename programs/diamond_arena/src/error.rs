@@ -80,6 +80,9 @@ pub enum DiamondError {
     #[msg("No prize to claim")]
     NoPrizeToClaim,
 
+    #[msg("Invalid Room")]
+    InvalidRoom,
+
     #[msg("Treasury account does not match config")]
     InvalidTreasury,
 

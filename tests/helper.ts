@@ -5,6 +5,7 @@ import { randomBytes } from "crypto";
 import { expect } from "chai";
 import { DiamondArena } from "../target/types/diamond_arena";
 import fs from "fs";
+import { DEVNET_ASIA_VALIDATOR } from "./constants";
 // Load player from file
 export function loadPlayer(filePath: string): anchor.web3.Keypair {
   const data = JSON.parse(fs.readFileSync(filePath, "utf8"));
@@ -201,6 +202,34 @@ export async function finalizeRound(
       room: pdas.room,
     })
     .remainingAccounts(remainingAccounts)
+    .rpc();
+
+  return tx;
+}
+
+export async function delegatePlayerStates(
+  program: Program<DiamondArena>,
+  payer: anchor.web3.Keypair,
+  roomId: anchor.BN,
+  player: PublicKey,
+  playerStatePda: PublicKey
+): Promise<string> {
+  const tx = await program.methods
+    .delegatePlayerState(roomId, player)
+    .accounts({
+      payer: payer.publicKey,
+      //@ts-ignore
+      playerState: playerStatePda,
+      validator: DEVNET_ASIA_VALIDATOR,
+    })
+    .remainingAccounts([
+      {
+        pubkey: DEVNET_ASIA_VALIDATOR,
+        isWritable: false,
+        isSigner: false,
+      },
+    ])
+    .signers([payer])
     .rpc();
 
   return tx;

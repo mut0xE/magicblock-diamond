@@ -55,8 +55,17 @@ pub mod diamond_arena {
     pub fn settle_match(ctx: Context<SettleMatch>, room_id: u64) -> Result<()> {
         ctx.accounts.handler(room_id)
     }
+
     pub fn delegate_room(ctx: Context<DelegateRoom>, room_id: u64) -> Result<()> {
         msg!("Delegating room {} to ER validator", room_id);
         DelegateRoom::handler(ctx, room_id)
+    }
+
+    pub fn delegate_player_state(
+        ctx: Context<DelegatePlayerState>,
+        room_id: u64,
+        player: Pubkey,
+    ) -> Result<()> {
+        DelegatePlayerState::handler(ctx, room_id, player)
     }
 }
