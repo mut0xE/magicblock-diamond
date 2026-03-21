@@ -390,4 +390,58 @@ describe("diamond_arena", () => {
       expect(choiceAccount.revealed).to.equal(false);
     });
   });
+
+  // ============ FAILURE PATH TESTS ============
+  describe("Failure Path: Edge Cases and Errors", () => {
+    const failureRoomId = new BN(999);
+    const [failureRoomPda] = derivePda(
+      [Buffer.from("room"), failureRoomId.toArrayLike(Buffer, "le", 8)],
+      program
+    );
+
+    it("should fail to join non-existent room", async () => {
+      await expectAnchorError(
+        program.methods
+          .joinRoom(failureRoomId)
+          .accounts({
+            player: admin.publicKey,
+            //@ts-ignore
+            room: failureRoomPda,
+            playerState: PublicKey.default,
+            vault: PublicKey.default,
+            systemProgram: SystemProgram.programId,
+          })
+          .rpc(),
+        "AccountNotInitialized"
+      );
+    });
+    it("should fail to submit pick with invalid range", async () => {
+      const invalidRound = 2;
+
+      const [invalidChoicePda] = derivePda(
+        [
+          Buffer.from("player_round_choice"),
+          roomId.toArrayLike(Buffer, "le", 8),
+          Buffer.from([invalidRound]),
+          admin.publicKey.toBuffer(),
+        ],
+        program
+      );
+
+      await expectAnchorError(
+        program.methods
+          .submitPick(roomId, invalidRound, 101)
+          .accounts({
+            player: admin.publicKey,
+            //@ts-ignore
+            room: roomPda,
+            playerState: player1StatePda,
+            playerRoundChoice: invalidChoicePda,
+            systemProgram: SystemProgram.programId,
+          })
+          .rpc(),
+        "InvalidPick"
+      );
+    });
+  });
 });

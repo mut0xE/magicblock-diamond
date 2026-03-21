@@ -1,5 +1,7 @@
 use crate::{
-    constants::{DISCRIMINATOR, PLAYER_ROUND_CHOICE_SEED, PLAYER_STATE_SEED, ROOM_SEED},
+    constants::{
+        DISCRIMINATOR, MAX_NUMBER, PLAYER_ROUND_CHOICE_SEED, PLAYER_STATE_SEED, ROOM_SEED,
+    },
     error::DiamondError,
     state::{PlayerRoundChoice, PlayerState, PlayerStatus, Room, RoomStatus},
 };
@@ -54,7 +56,7 @@ impl<'info> SubmitPick<'info> {
         let room = &self.room;
         let choice = &mut self.player_round_choice;
 
-        require!(pick <= 100, DiamondError::InvalidPick);
+        require!(pick <= MAX_NUMBER, DiamondError::InvalidPick);
         require!(round == room.current_round, DiamondError::InvalidRound);
 
         let now = Clock::get()?.unix_timestamp;
