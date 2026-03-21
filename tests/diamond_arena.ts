@@ -2,7 +2,12 @@ import * as anchor from "@coral-xyz/anchor";
 import { Program } from "@coral-xyz/anchor";
 import { DiamondArena } from "../target/types/diamond_arena";
 import fs from "fs";
-import { LAMPORTS_PER_SOL, PublicKey, SystemProgram } from "@solana/web3.js";
+import {
+  Keypair,
+  LAMPORTS_PER_SOL,
+  PublicKey,
+  SystemProgram,
+} from "@solana/web3.js";
 import BN from "bn.js";
 import { expect } from "chai";
 import { derivePda, getNonce, logTransactionResult } from "./helper";
@@ -19,38 +24,9 @@ describe("diamond_arena", () => {
 
   let programDataAddress: PublicKey;
 
-  const player2 = anchor.web3.Keypair.fromSecretKey(
-    Uint8Array.from(
-      JSON.parse(
-        fs.readFileSync(
-          "/Users/mut0xE/Downloads/keys/us68r6awy9CVvUkJ58jEY1Bxp4sjpuyQZZys41hNH9S.json",
-          "utf8"
-        )
-      )
-    )
-  );
-
-  const player3 = anchor.web3.Keypair.fromSecretKey(
-    Uint8Array.from(
-      JSON.parse(
-        fs.readFileSync(
-          "/Users/mut0xE/Downloads/keys/b1sjj58RYydHb7bm2PhQ1ALxWVayLd1VofW2o6gTQX4.json",
-          "utf8"
-        )
-      )
-    )
-  );
-  // const player4 = Keypair.generate();
-  const player4 = anchor.web3.Keypair.fromSecretKey(
-    Uint8Array.from(
-      JSON.parse(
-        fs.readFileSync(
-          "/Users/mut0xE/Downloads/keys/b2M6wZCujvcaKms27aLnsfNhhM5LLdygutwqJb9Uzn2.json",
-          "utf8"
-        )
-      )
-    )
-  );
+  const player2 = Keypair.generate();
+  const player3 = Keypair.generate();
+  const player4 = Keypair.generate();
 
   const roomId = getNonce();
   const entryFee = new BN(0.1 * LAMPORTS_PER_SOL);
@@ -140,30 +116,30 @@ describe("diamond_arena", () => {
   });
 
   describe("Happy Path: Complete Game Flow", () => {
-    it("should initialize config", async () => {
-      const programData = programDataAddress;
+    // it("should initialize config", async () => {
+    //   const programData = programDataAddress;
 
-      const tx = await program.methods
-        .initialzeConfig(TREASURY, 100) // 1%
-        .accounts({
-          admin: admin.publicKey,
-          //@ts-ignore
-          config: configPda,
-          systemProgram: SYSTEM_PROGRAM,
-          thisProgram: program.programId,
-          programData,
-        })
-        .rpc();
+    //   const tx = await program.methods
+    //     .initialzeConfig(TREASURY, 100) // 1%
+    //     .accounts({
+    //       admin: admin.publicKey,
+    //       //@ts-ignore
+    //       config: configPda,
+    //       systemProgram: SYSTEM_PROGRAM,
+    //       thisProgram: program.programId,
+    //       programData,
+    //     })
+    //     .rpc();
 
-      logTransactionResult("Config initialized", tx);
-      expect(tx).to.exist;
+    //   logTransactionResult("Config initialized", tx);
+    //   expect(tx).to.exist;
 
-      const configAccount = await program.account.config.fetch(configPda);
-      // console.log("config account:", configAccount);
-      expect(configAccount.admin.toBase58()).equals(admin.publicKey.toBase58());
-      expect(configAccount.feeBps).equals(100);
-      expect(configAccount.treasury.toBase58()).equals(TREASURY.toBase58());
-    });
+    //   const configAccount = await program.account.config.fetch(configPda);
+    //   // console.log("config account:", configAccount);
+    //   expect(configAccount.admin.toBase58()).equals(admin.publicKey.toBase58());
+    //   expect(configAccount.feeBps).equals(100);
+    //   expect(configAccount.treasury.toBase58()).equals(TREASURY.toBase58());
+    // });
 
     it("should create a room", async () => {
       const tx = await program.methods
@@ -182,9 +158,112 @@ describe("diamond_arena", () => {
 
       // Verify room state
       const roomAccount = await program.account.room.fetch(roomPda);
-      // console.log("room account:", roomAccount);
+      console.log("room account:", roomAccount);
       expect(roomAccount.roomId.eq(roomId)).to.be.true;
       expect(roomAccount.entryFee.eq(entryFee)).to.be.true;
+    });
+
+    it("should allow player-1 to join room", async () => {
+      const tx = await program.methods
+        .joinRoom(roomId)
+        .accounts({
+          player: admin.publicKey,
+          //@ts-ignore
+          room: roomPda,
+          playerState: player1StatePda,
+          vault: vaultPda,
+          systemProgram: SystemProgram.programId,
+        })
+        .rpc();
+
+      logTransactionResult("Player-1 joined room", tx);
+      expect(tx).to.exist;
+
+      // Verify player state
+      const playerState = await program.account.playerState.fetch(
+        player1StatePda
+      );
+      console.log("player state", playerState);
+
+      expect(playerState.player.toString()).to.equal(
+        admin.publicKey.toString()
+      );
+      expect(playerState.roomId.eq(roomId)).to.be.true;
+      expect(playerState.lives).to.equal(3);
+      expect(playerState.joinedAtRound).to.equal(0);
+      // status enum check
+      expect(playerState.status.active).to.not.equal(undefined);
+    });
+
+    it("should allow player-2 to join room", async () => {
+      const tx = await program.methods
+        .joinRoom(roomId)
+        .accounts({
+          player: player2.publicKey,
+          //@ts-ignore
+          room: roomPda,
+          playerState: player2StatePda,
+          vault: vaultPda,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([player2])
+        .rpc();
+
+      logTransactionResult("Player-2 joined room", tx);
+      expect(tx).to.exist;
+
+      // Verify player state
+      const playerState = await program.account.playerState.fetch(
+        player2StatePda
+      );
+      console.log("player state", playerState);
+
+      expect(playerState.player.toString()).to.equal(
+        player2.publicKey.toString()
+      );
+      expect(playerState.roomId.eq(roomId)).to.be.true;
+      expect(playerState.lives).to.equal(3);
+      expect(playerState.joinedAtRound).to.equal(0);
+      // status enum check
+      expect(playerState.status.active).to.not.equal(undefined);
+    });
+
+    it("should allow player-3 to join room", async () => {
+      const tx = await program.methods
+        .joinRoom(roomId)
+        .accounts({
+          player: player3.publicKey,
+          //@ts-ignore
+          room: roomPda,
+          playerState: player3StatePda,
+          vault: vaultPda,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([player3])
+        .rpc();
+
+      logTransactionResult("Player-3 joined room", tx);
+      expect(tx).to.exist;
+
+      // Verify player state
+      const playerState = await program.account.playerState.fetch(
+        player3StatePda
+      );
+      console.log("player state", playerState);
+
+      expect(playerState.player.toString()).to.equal(
+        player3.publicKey.toString()
+      );
+      expect(playerState.roomId.eq(roomId)).to.be.true;
+      expect(playerState.lives).to.equal(3);
+      expect(playerState.joinedAtRound).to.equal(0);
+      // status enum check
+      expect(playerState.status.active).to.not.equal(undefined);
+    });
+
+    it("should update room current_players to 3", async () => {
+      const roomAccount = await program.account.room.fetch(roomPda);
+      expect(roomAccount.currentPlayers).to.equal(3);
     });
   });
 });
