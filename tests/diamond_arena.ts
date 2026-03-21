@@ -2,12 +2,7 @@ import * as anchor from "@coral-xyz/anchor";
 import { Program } from "@coral-xyz/anchor";
 import { DiamondArena } from "../target/types/diamond_arena";
 import fs from "fs";
-import {
-  Keypair,
-  LAMPORTS_PER_SOL,
-  PublicKey,
-  SystemProgram,
-} from "@solana/web3.js";
+import { LAMPORTS_PER_SOL, PublicKey, SystemProgram } from "@solana/web3.js";
 import BN from "bn.js";
 import { expect } from "chai";
 import { derivePda, getNonce, logTransactionResult } from "./helper";
@@ -264,6 +259,29 @@ describe("diamond_arena", () => {
     it("should update room current_players to 3", async () => {
       const roomAccount = await program.account.room.fetch(roomPda);
       expect(roomAccount.currentPlayers).to.equal(3);
+    });
+
+    it("should start the match", async () => {
+      const tx = await program.methods
+        .startMatch(roomId)
+        .accounts({
+          authority: admin.publicKey,
+          //@ts-ignore
+          room: roomPda,
+        })
+        .rpc();
+
+      logTransactionResult("Match started:", tx);
+      expect(tx).to.exist;
+
+      // Verify match is active
+      const roomAccount = await program.account.room.fetch(roomPda);
+      expect(roomAccount.status.active).to.not.equal(undefined);
+      expect(roomAccount.currentRound).to.equal(1);
+      expect(roomAccount.commitDeadline.toNumber()).to.be.greaterThan(0);
+      expect(roomAccount.revealDeadline.toNumber()).to.be.greaterThan(
+        roomAccount.commitDeadline.toNumber()
+      );
     });
   });
 });
