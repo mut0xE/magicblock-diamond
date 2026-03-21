@@ -64,4 +64,28 @@ pub enum DiamondError {
 
     #[msg("Reveal phase is not over yet")]
     RevealPhaseNotOver,
+
+    #[msg("Match is not finished.")]
+    MatchNotFinished,
+
+    #[msg("Winner not set.")]
+    WinnerNotSet,
+
+    #[msg("Invalid winner account.")]
+    InvalidWinner,
+
+    #[msg("Match already settled.")]
+    AlreadySettled,
+
+    #[msg("No prize to claim")]
+    NoPrizeToClaim,
+
+    #[msg("Treasury account does not match config")]
+    InvalidTreasury,
+
+    #[msg("Program data account does not match this program")]
+    ProgramDataMismatch,
+
+    #[msg("Signer is not the program upgrade authority")]
+    UpgradeAuthorityMismatch,
 }

@@ -1,7 +1,7 @@
 use anchor_lang::prelude::*;
 
 use crate::{
-    constants::{DISCRIMINATOR, MAX_PLAYERS, MIN_PLAYERS, PROTOCOL_FEE_BPS, ROOM_SEED},
+    constants::{DISCRIMINATOR, MAX_PLAYERS, MIN_PLAYERS, ROOM_SEED, VAULT_SEED},
     error::DiamondError,
     state::{Room, RoomStatus},
 };
@@ -20,6 +20,14 @@ pub struct CreateRoom<'info> {
         bump
     )]
     pub room: Account<'info, Room>,
+
+    /// Vault account to hold all entry fees (system account)
+    #[account(
+            mut,
+            seeds = [VAULT_SEED, &room_id.to_le_bytes()],
+            bump
+        )]
+    pub vault: SystemAccount<'info>,
 
     pub system_program: Program<'info, System>,
 }
@@ -47,12 +55,13 @@ impl<'info> CreateRoom<'info> {
             commit_deadline: 0,
             reveal_deadline: 0,
             prize_pool: 0,
-            protocol_fee_bps: PROTOCOL_FEE_BPS,
             max_players,
             current_players: 0,
             current_round: 0,
             status: RoomStatus::Waiting,
             bump: bumps.room,
+            vault_bump: bumps.vault,
+            settled: false,
         });
         Ok(())
     }

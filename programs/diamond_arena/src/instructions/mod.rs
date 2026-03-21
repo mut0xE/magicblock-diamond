@@ -1,11 +1,15 @@
 pub mod create_room;
 pub mod finalize_round;
+pub mod initialize_config;
 pub mod join_room;
+pub mod settle_match;
 pub mod start_match;
 pub mod submit_pick;
 
 pub use create_room::*;
 pub use finalize_round::*;
+pub use initialize_config::*;
 pub use join_room::*;
+pub use settle_match::*;
 pub use start_match::*;
 pub use submit_pick::*;

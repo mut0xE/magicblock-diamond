@@ -12,6 +12,14 @@ use instructions::*;
 pub mod diamond_arena {
     use super::*;
 
+    pub fn initialze_config(
+        ctx: Context<InitializeConfig>,
+        treasury: Pubkey,
+        fee_bps: u8,
+    ) -> Result<()> {
+        ctx.accounts.handler(treasury, fee_bps, &ctx.bumps)
+    }
+
     pub fn create_room(
         ctx: Context<CreateRoom>,
         room_id: u64,
@@ -39,5 +47,9 @@ pub mod diamond_arena {
         room_id: u64,
     ) -> Result<()> {
         ctx.accounts.handler(room_id, &ctx.remaining_accounts)
+    }
+
+    pub fn settle_match(ctx: Context<SettleMatch>, room_id: u64) -> Result<()> {
+        ctx.accounts.handler(room_id)
     }
 }
