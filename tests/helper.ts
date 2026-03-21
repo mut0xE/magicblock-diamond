@@ -1,11 +1,16 @@
 import * as anchor from "@coral-xyz/anchor";
 import { BN, Program } from "@coral-xyz/anchor";
-import { LAMPORTS_PER_SOL, PublicKey, SystemProgram } from "@solana/web3.js";
+import {
+  LAMPORTS_PER_SOL,
+  PublicKey,
+  SystemProgram,
+  Transaction,
+} from "@solana/web3.js";
 import { randomBytes } from "crypto";
 import { expect } from "chai";
 import { DiamondArena } from "../target/types/diamond_arena";
 import fs from "fs";
-import { DEVNET_ASIA_VALIDATOR } from "./constants";
+import { DEVNET_ASIA_VALIDATOR, magicConnection } from "./constants";
 // Load player from file
 export function loadPlayer(filePath: string): anchor.web3.Keypair {
   const data = JSON.parse(fs.readFileSync(filePath, "utf8"));
@@ -233,6 +238,46 @@ export async function delegatePlayerStates(
     .rpc();
 
   return tx;
+}
+
+export async function startMatchViaMagicRouter(
+  program: Program<DiamondArena>,
+  signer: anchor.web3.Keypair,
+  roomId: BN,
+  roomPda: anchor.web3.PublicKey
+): Promise<string> {
+  console.log("\nStarting match via Magic Router...");
+  console.log(`   Room ID: ${roomId.toString()}`);
+  console.log(`   Signer: ${signer.publicKey.toString()}\n`);
+
+  // Build instruction
+  const startMatchIx = await program.methods
+    .startMatch(roomId)
+    .accounts({
+      authority: signer.publicKey,
+      //@ts-ignore
+      room: roomPda,
+    })
+    .instruction();
+
+  const latestBlockhash = await magicConnection.getLatestBlockhash();
+
+  // Build transaction
+  const tx = new Transaction().add(startMatchIx);
+
+  tx.feePayer = signer.publicKey;
+  tx.recentBlockhash = latestBlockhash.blockhash;
+
+  const signature = await magicConnection.sendTransaction(tx, [signer], {
+    skipPreflight: true,
+  });
+
+  await magicConnection.confirmTransaction({
+    signature,
+    ...latestBlockhash,
+  });
+
+  return signature;
 }
 
 // Check player lives

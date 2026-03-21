@@ -22,6 +22,7 @@ import {
   logTransactionResult,
   Pdas,
   printState,
+  startMatchViaMagicRouter,
   submitPick,
   wait,
 } from "./helper";
@@ -181,32 +182,6 @@ describe("diamond_arena", () => {
         txHash
       );
     });
-
-    // it("should start the match", async () => {
-    //   const tx = await program.methods
-    //     .startMatch(roomId)
-    //     .accounts({
-    //       authority: admin.publicKey,
-    //       //@ts-ignore
-    //       room: pdas.room,
-    //     })
-    //     .rpc();
-
-    //   logTransactionResult("Match started:", tx);
-    //   // SHOW ROOM STATE after start
-    //   await displayRoomState(program, pdas.room, "MATCH STARTED");
-    //   expect(tx).to.exist;
-
-    //   // Verify match is active
-    //   const roomAccount = await program.account.room.fetch(pdas.room);
-    //   expect(roomAccount.status.active).to.not.equal(undefined);
-    //   expect(roomAccount.currentRound).to.equal(1);
-    //   expect(roomAccount.commitDeadline.toNumber()).to.be.greaterThan(0);
-    //   expect(roomAccount.revealDeadline.toNumber()).to.be.greaterThan(
-    //     roomAccount.commitDeadline.toNumber()
-    //   );
-    // });
-
     it("should delegate all player state PDAs", async () => {
       console.log("\nDelegating PlayerState PDAs to MagicBlock...");
 
@@ -255,6 +230,47 @@ describe("diamond_arena", () => {
       console.log("Player-2 state:", ps2);
       console.log("Player-3 state:", ps3);
     });
+
+    // it("should start the match", async () => {
+    //   const tx = await program.methods
+    //     .startMatch(roomId)
+    //     .accounts({
+    //       authority: admin.publicKey,
+    //       //@ts-ignore
+    //       room: pdas.room,
+    //     })
+    //     .rpc();
+
+    //   logTransactionResult("Match started:", tx);
+    //   // SHOW ROOM STATE after start
+    //   await displayRoomState(program, pdas.room, "MATCH STARTED");
+    //   expect(tx).to.exist;
+
+    //   // Verify match is active
+    //   const roomAccount = await program.account.room.fetch(pdas.room);
+    //   expect(roomAccount.status.active).to.not.equal(undefined);
+    //   expect(roomAccount.currentRound).to.equal(1);
+    //   expect(roomAccount.commitDeadline.toNumber()).to.be.greaterThan(0);
+    //   expect(roomAccount.revealDeadline.toNumber()).to.be.greaterThan(
+    //     roomAccount.commitDeadline.toNumber()
+    //   );
+    // });
+
+    it("should start match via Magic Router", async () => {
+      console.log("\nStarting match via Magic Router...");
+
+      const sig = await startMatchViaMagicRouter(
+        program,
+        admin.payer,
+        roomId,
+        pdas.room
+      );
+
+      logTransactionResult("Start match tx", sig);
+      const room = await program.account.room.fetch(pdas.room);
+      console.log("room after start_match:", room);
+    });
+
     // it("should do round 1 (picks: 20, 20, 40)", async () => {
     //   console.log("--- Round 1: P1=20, P2=20, P3=40 ---");
 
