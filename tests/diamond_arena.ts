@@ -13,6 +13,7 @@ import {
   displayRoundResults,
   expectAnchorError,
   finalizeRound,
+  getPda,
   getPlayerLives,
   getRoomId,
   joinRoom,
@@ -51,8 +52,12 @@ describe("diamond_arena", () => {
 
     // Load players from files
     player1 = admin.payer;
-    player2 = loadPlayer("");
-    player3 = loadPlayer("");
+    player2 = loadPlayer(
+      "/Users/mut0xE/Downloads/keys/us68r6awy9CVvUkJ58jEY1Bxp4sjpuyQZZys41hNH9S.json"
+    );
+    player3 = loadPlayer(
+      "/Users/mut0xE/Downloads/keys/b1sjj58RYydHb7bm2PhQ1ALxWVayLd1VofW2o6gTQX4.json"
+    );
 
     console.log(`Player1 (Admin): ${player1.publicKey}`);
     console.log(`Player2: ${player2.publicKey}`);
@@ -429,6 +434,143 @@ describe("diamond_arena", () => {
         pdas.playerStates[player1.publicKey.toBase58()]
       );
       expect(p1Status).to.be.greaterThan(0);
+    });
+  });
+
+  describe("Failure Path: Edge Cases and Errors", () => {
+    it("should fail to join non-existent room", async () => {
+      const failureRoomId = new BN(999);
+      const failureRoomPda = getPda(
+        [Buffer.from("room"), failureRoomId.toArrayLike(Buffer, "le", 8)],
+        program
+      );
+
+      await expectAnchorError(
+        program.methods
+          .joinRoom(failureRoomId)
+          .accounts({
+            player: admin.publicKey,
+            //@ts-ignore
+            room: failureRoomPda,
+            playerState: PublicKey.default,
+            vault: PublicKey.default,
+            systemProgram: SYSTEM_PROGRAM,
+          })
+          .rpc(),
+        "AccountNotInitialized"
+      );
+
+      console.log("Correctly rejected non-existent room\n");
+    });
+
+    it("should fail to create room with 0 max players", async () => {
+      const testRoomId = getRoomId();
+
+      await expectAnchorError(
+        program.methods
+          .createRoom(testRoomId, entryFee, 0) // 0 max players - invalid
+          .accounts({
+            creator: admin.publicKey,
+            //@ts-ignore
+            room: getPda(
+              [Buffer.from("room"), testRoomId.toArrayLike(Buffer, "le", 8)],
+              program
+            ),
+            vault: getPda(
+              [Buffer.from("vault"), testRoomId.toArrayLike(Buffer, "le", 8)],
+              program
+            ),
+            systemProgram: SYSTEM_PROGRAM,
+          })
+          .rpc(),
+        "InvalidMaxPlayers"
+      );
+
+      console.log("Correctly rejected invalid max players\n");
+    });
+
+    it("should fail to join when room is full", async () => {
+      const testRoomId = getRoomId();
+      const testPdas = buildAllPdas(
+        testRoomId,
+        [player1.publicKey, player2.publicKey, player3.publicKey],
+        [1],
+        program
+      );
+
+      // Create room with max 2 players
+      await program.methods
+        .createRoom(testRoomId, entryFee, 2)
+        .accounts({
+          creator: admin.publicKey,
+          //@ts-ignore
+          room: testPdas.room,
+          vault: testPdas.vault,
+          systemProgram: SYSTEM_PROGRAM,
+        })
+        .rpc();
+
+      // Join 2 players
+      await joinRoom(program, player1, testRoomId, testPdas);
+      await joinRoom(program, player2, testRoomId, testPdas);
+
+      // Try to join 3rd player - should fail
+      await expectAnchorError(
+        program.methods
+          .joinRoom(testRoomId)
+          .accounts({
+            player: player3.publicKey,
+            //@ts-ignore
+            room: testPdas.room,
+            playerState: testPdas.playerStates[player3.publicKey.toBase58()],
+            vault: testPdas.vault,
+            systemProgram: SYSTEM_PROGRAM,
+          })
+          .signers([player3])
+          .rpc(),
+        "RoomFull"
+      );
+
+      console.log("Correctly rejected join on full room\n");
+    });
+
+    it("should fail to start match with insufficient players", async () => {
+      const testRoomId = getRoomId();
+      const testPdas = buildAllPdas(
+        testRoomId,
+        [player1.publicKey],
+        [1],
+        program
+      );
+
+      await program.methods
+        .createRoom(testRoomId, entryFee, 3)
+        .accounts({
+          creator: admin.publicKey,
+          //@ts-ignore
+          room: testPdas.room,
+          vault: testPdas.vault,
+          systemProgram: SYSTEM_PROGRAM,
+        })
+        .rpc();
+
+      // Only 1 player joins
+      await joinRoom(program, player1, testRoomId, testPdas);
+
+      // Try to start match - should fail
+      await expectAnchorError(
+        program.methods
+          .startMatch(testRoomId)
+          .accounts({
+            authority: admin.publicKey,
+            //@ts-ignore
+            room: testPdas.room,
+          })
+          .rpc(),
+        "NotEnoughPlayers"
+      );
+
+      console.log("Correctly rejected match start with insufficient players\n");
     });
   });
 });

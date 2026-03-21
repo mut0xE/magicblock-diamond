@@ -336,17 +336,22 @@ export async function displayRoomState(
   const room = await getRoomData(program, roomPda);
 
   console.log("\n╔════════════════════════════════════════════════════════╗");
-  console.log(`║ ${title.padEnd(56)}║`);
+  console.log(`║ ${title}`.padEnd(57) + "║");
   console.log("╠════════════════════════════════════════════════════════╣");
-  console.log(`║ Room ID:          ${room.roomId.slice(0, 40).padEnd(46)}║`);
-  console.log(`║ Current Round:    ${String(room.currentRound).padEnd(46)}║`);
   console.log(
-    `║ Players:          ${room.currentPlayers}/${room.maxPlayers}${" ".padEnd(
-      45
-    )}║`
+    `║ Room ID:          ${room.roomId.slice(0, 40)}`.padEnd(57) + "║"
   );
-  console.log(`║ Status:           ${JSON.stringify(room.status).padEnd(46)}║`);
-  console.log(`║ Winner:           ${room.winner.slice(0, 40).padEnd(46)}║`);
+  console.log(`║ Current Round:    ${room.currentRound}`.padEnd(57) + "║");
+  console.log(
+    `║ Players:          ${room.currentPlayers}/${room.maxPlayers}`.padEnd(57) +
+      "║"
+  );
+  console.log(
+    `║ Status:           ${JSON.stringify(room.status)}`.padEnd(57) + "║"
+  );
+  console.log(
+    `║ Winner:           ${room.winner.slice(0, 40)}`.padEnd(57) + "║"
+  );
   console.log("╚════════════════════════════════════════════════════════╝\n");
 }
 
@@ -382,9 +387,9 @@ export async function displayRoundResults(
     if (choicePda) {
       const choice = await getPlayerChoice(program, choicePda);
       console.log(
-        `║   ${p.name.padEnd(15)} picked: ${choice.pick
+        `║   ${p.name.padEnd(20)} picked:  ${choice.pick
           .toString()
-          .padStart(3)}${"".padEnd(31)}║`
+          .padStart(2)}`.padEnd(57) + "║"
       );
     }
   }
@@ -406,9 +411,9 @@ export async function displayRoundResults(
         : "?";
 
     console.log(
-      `║   ${p.name.padEnd(15)} Lives: ${String(player.lives).padStart(
-        1
-      )}    Status: ${player.status.padEnd(12)}${statusIcon}${"".padEnd(13)}║`
+      `║   ${p.name.padEnd(20)} Lives: ${
+        player.lives
+      }    Status: ${player.status.padEnd(11)} ${statusIcon}`.padEnd(57) + "║"
     );
   }
 
@@ -426,11 +431,12 @@ export async function displayGameSummary(
   console.log("\n╔════════════════════════════════════════════════════════╗");
   console.log("║ GAME SUMMARY".padEnd(57) + "║");
   console.log("╠════════════════════════════════════════════════════════╣");
-  console.log(`║ Final Round: ${String(room.currentRound).padEnd(43)}║`);
+  console.log(`║ Final Round: ${room.currentRound}`.padEnd(57) + "║");
   console.log(
-    `║ Winner: ${(room.winner === "None" ? "Still playing..." : room.winner)
-      .slice(0, 40)
-      .padEnd(49)}║`
+    `║ Winner: ${(room.winner === "None"
+      ? "Still playing..."
+      : room.winner
+    ).slice(0, 40)}`.padEnd(57) + "║"
   );
   console.log("╠════════════════════════════════════════════════════════╣");
 
@@ -446,9 +452,7 @@ export async function displayGameSummary(
     else icon = "❓ UNKNOWN";
 
     console.log(
-      `║ ${p.name.padEnd(15)} | Lives: ${String(player.lives).padStart(
-        1
-      )} | ${icon.padEnd(32)}║`
+      `║ ${p.name.padEnd(20)} | Lives: ${player.lives} | ${icon.padEnd(25)}║`
     );
   }
 
