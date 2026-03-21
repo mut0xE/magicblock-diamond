@@ -13,14 +13,13 @@ use crate::{
 #[instruction(room_id: u64)]
 pub struct SettleMatch<'info> {
     #[account(mut)]
-    pub winner: Signer<'info>,
+    pub caller: Signer<'info>,
 
     #[account(
             mut,
             seeds = [ROOM_SEED, &room_id.to_le_bytes()],
             bump = room.bump,
             constraint = room.status == RoomStatus::Finished @ DiamondError::MatchNotFinished,
-            constraint = room.winner == Some(winner.key()) @ DiamondError::InvalidWinner,
         )]
     pub room: Account<'info, Room>,
 
@@ -30,6 +29,13 @@ pub struct SettleMatch<'info> {
             bump
         )]
     pub vault: SystemAccount<'info>,
+
+    /// CHECK: validated against room winner
+    #[account(
+           mut,
+           constraint = room.winner == Some(winner.key()) @ DiamondError::InvalidWinner
+       )]
+    pub winner: AccountInfo<'info>,
 
     #[account(
                seeds = [CONFIG_SEED],
@@ -48,15 +54,16 @@ pub struct SettleMatch<'info> {
 impl<'info> SettleMatch<'info> {
     pub fn handler(&mut self, _room_id: u64) -> Result<()> {
         let room = &mut self.room;
-        let prize = room.prize_pool;
+        let prize_pool = room.prize_pool;
+        let fee_bps = self.config.fee_bps;
 
-        require!(prize > 0, DiamondError::NoPrizeToClaim);
+        require!(prize_pool > 0, DiamondError::NoPrizeToClaim);
         require!(!room.settled, DiamondError::AlreadySettled);
 
-        // Transfer prize from vault to winner
+        // Calculate fee and payout
         let fee = room
             .prize_pool
-            .checked_mul(self.config.fee_bps as u64)
+            .checked_mul(fee_bps as u64)
             .ok_or(DiamondError::MathOverflow)?
             .checked_div(10_000)
             .ok_or(DiamondError::MathOverflow)?;
@@ -69,6 +76,7 @@ impl<'info> SettleMatch<'info> {
         let room_id_bytes = room.room_id.to_le_bytes();
         let vault_seeds = &[VAULT_SEED, room_id_bytes.as_ref(), &[room.vault_bump]];
 
+        // Transfer fee to treasury
         if fee > 0 {
             transfer(
                 CpiContext::new_with_signer(
@@ -81,8 +89,10 @@ impl<'info> SettleMatch<'info> {
                 ),
                 fee,
             )?;
+            msg!("Treasury received {} lamports ({} bps fee)", fee, fee_bps);
         }
 
+        // Transfer payout to winner
         if payout > 0 {
             transfer(
                 CpiContext::new_with_signer(
@@ -95,10 +105,17 @@ impl<'info> SettleMatch<'info> {
                 ),
                 payout,
             )?;
+            msg!("Winner {} received {} lamports", self.winner.key(), payout);
         }
         room.settled = true;
 
-        msg!("Winner {} claimed {} lamports!", self.winner.key(), prize);
+        msg!(
+            "Match settled! Total: {} | Fee: {} | Payout: {}",
+            prize_pool,
+            fee,
+            payout
+        );
+
         Ok(())
     }
 }
