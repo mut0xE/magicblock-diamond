@@ -5,7 +5,12 @@ import fs from "fs";
 import { LAMPORTS_PER_SOL, PublicKey, SystemProgram } from "@solana/web3.js";
 import BN from "bn.js";
 import { expect } from "chai";
-import { derivePda, getNonce, logTransactionResult } from "./helper";
+import {
+  derivePda,
+  expectAnchorError,
+  getNonce,
+  logTransactionResult,
+} from "./helper";
 const TREASURY = new PublicKey("treynHHxg2ftG3Hzn5dypVZX593Yss6uU54puVE614D");
 export const SYSTEM_PROGRAM = SystemProgram.programId;
 
@@ -167,7 +172,7 @@ describe("diamond_arena", () => {
           room: roomPda,
           playerState: player1StatePda,
           vault: vaultPda,
-          systemProgram: SystemProgram.programId,
+          systemProgram: SYSTEM_PROGRAM,
         })
         .rpc();
 
@@ -199,7 +204,7 @@ describe("diamond_arena", () => {
           room: roomPda,
           playerState: player2StatePda,
           vault: vaultPda,
-          systemProgram: SystemProgram.programId,
+          systemProgram: SYSTEM_PROGRAM,
         })
         .signers([player2])
         .rpc();
@@ -232,7 +237,7 @@ describe("diamond_arena", () => {
           room: roomPda,
           playerState: player3StatePda,
           vault: vaultPda,
-          systemProgram: SystemProgram.programId,
+          systemProgram: SYSTEM_PROGRAM,
         })
         .signers([player3])
         .rpc();
@@ -282,6 +287,107 @@ describe("diamond_arena", () => {
       expect(roomAccount.revealDeadline.toNumber()).to.be.greaterThan(
         roomAccount.commitDeadline.toNumber()
       );
+    });
+
+    it("should allow player1 to submit pick", async () => {
+      const pick = 20;
+      const tx = await program.methods
+        .submitPick(roomId, round, pick)
+        .accounts({
+          player: admin.publicKey,
+          //@ts-ignore
+          room: roomPda,
+          playerState: player1StatePda,
+          playerRoundChoice: player1ChoicePda,
+          systemProgram: SYSTEM_PROGRAM,
+        })
+        .rpc();
+
+      logTransactionResult(`Player-1 submitted pick ${pick}`, tx);
+      expect(tx).to.exist;
+
+      // Verify choice was recorded
+      const choiceAccount = await program.account.playerRoundChoice.fetch(
+        player1ChoicePda
+      );
+      console.log("choice account", choiceAccount);
+      expect(choiceAccount.roomId.eq(roomId)).to.be.true;
+      expect(choiceAccount.round).to.equal(round);
+
+      expect(choiceAccount.player.toString()).to.equal(
+        admin.publicKey.toString()
+      );
+      expect(choiceAccount.pick).to.equal(pick);
+      expect(choiceAccount.committed).to.equal(true);
+      expect(choiceAccount.revealed).to.equal(false);
+    });
+
+    it("should allow player-2 to submit pick", async () => {
+      const pick = 22;
+      const tx = await program.methods
+        .submitPick(roomId, round, pick)
+        .accounts({
+          player: player2.publicKey,
+          //@ts-ignore
+          room: roomPda,
+          playerState: player2StatePda,
+          playerRoundChoice: player2ChoicePda,
+          systemProgram: SYSTEM_PROGRAM,
+        })
+        .signers([player2])
+        .rpc();
+
+      logTransactionResult(`Player-2 submitted pick ${pick}`, tx);
+      expect(tx).to.exist;
+
+      // Verify choice was recorded
+      const choiceAccount = await program.account.playerRoundChoice.fetch(
+        player2ChoicePda
+      );
+      console.log("choice account", choiceAccount);
+      expect(choiceAccount.roomId.eq(roomId)).to.be.true;
+      expect(choiceAccount.round).to.equal(round);
+
+      expect(choiceAccount.player.toString()).to.equal(
+        player2.publicKey.toString()
+      );
+      expect(choiceAccount.pick).to.equal(pick);
+      expect(choiceAccount.committed).to.equal(true);
+      expect(choiceAccount.revealed).to.equal(false);
+    });
+
+    it("should allow player-3 to submit pick", async () => {
+      const pick = 32;
+      const tx = await program.methods
+        .submitPick(roomId, round, pick)
+        .accounts({
+          player: player3.publicKey,
+          //@ts-ignore
+          room: roomPda,
+          playerState: player3StatePda,
+          playerRoundChoice: player3ChoicePda,
+          systemProgram: SYSTEM_PROGRAM,
+        })
+        .signers([player3])
+        .rpc();
+
+      logTransactionResult(`Player-3 submitted pick ${pick}`, tx);
+      expect(tx).to.exist;
+
+      // Verify choice was recorded
+      const choiceAccount = await program.account.playerRoundChoice.fetch(
+        player3ChoicePda
+      );
+      console.log("choice account", choiceAccount);
+      expect(choiceAccount.roomId.eq(roomId)).to.be.true;
+      expect(choiceAccount.round).to.equal(round);
+
+      expect(choiceAccount.player.toString()).to.equal(
+        player3.publicKey.toString()
+      );
+      expect(choiceAccount.pick).to.equal(pick);
+      expect(choiceAccount.committed).to.equal(true);
+      expect(choiceAccount.revealed).to.equal(false);
     });
   });
 });
