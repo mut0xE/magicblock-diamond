@@ -21,7 +21,7 @@ pub struct Room {
     pub reveal_deadline: i64,
 
     pub prize_pool: u64, // total deposited by players
-    pub protocol_fee_bps: u16,
+    pub protocol_fee_bps: u8,
 
     pub max_players: u8, // all entry fees
     pub current_players: u8,

@@ -11,5 +11,6 @@ pub struct PlayerRoundChoice {
     pub committed: bool,
     pub revealed: bool,
 
+    pub timestamp: i64,
     pub bump: u8,
 }

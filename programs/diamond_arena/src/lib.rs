@@ -3,11 +3,10 @@ use anchor_lang::prelude::*;
 declare_id!("E6ZxrJxuJ2mcAuqSU5JD3GdWYWWkxUddz4i8QqujFxR2");
 mod constants;
 mod error;
+mod helper;
 mod instructions;
 mod state;
-
 use instructions::*;
-use state::*;
 
 #[program]
 pub mod diamond_arena {
@@ -33,5 +32,12 @@ pub mod diamond_arena {
 
     pub fn submit_pick(ctx: Context<SubmitPick>, room_id: u64, round: u8, pick: u8) -> Result<()> {
         ctx.accounts.handler(room_id, round, pick, &ctx.bumps)
+    }
+
+    pub fn finalize_round<'info>(
+        ctx: Context<'_, '_, 'info, 'info, FinalizeRound<'info>>,
+        room_id: u64,
+    ) -> Result<()> {
+        ctx.accounts.handler(room_id, &ctx.remaining_accounts)
     }
 }

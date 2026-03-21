@@ -70,6 +70,7 @@ impl<'info> SubmitPick<'info> {
             committed: true,
             revealed: false,
             bump: bumps.player_round_choice,
+            timestamp: now,
         });
         Ok(())
     }
