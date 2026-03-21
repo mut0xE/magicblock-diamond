@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use anchor_lang::prelude::*;
 
 use crate::{
+    constants::{COMMIT_DURATION, REVEAL_DURATION},
     error::DiamondError,
     state::{PlayerState, PlayerStatus, Room, RoomStatus},
 };
@@ -48,7 +49,7 @@ pub fn score_entries(entries: &mut [RoundEntry]) -> Result<()> {
             .checked_add(entry.pick as u64)
             .ok_or(DiamondError::MathOverflow)?;
     }
-
+    msg!("Sum of picks: {}", sum);
     // 2. compute distance for each player
     for entry in entries.iter_mut() {
         let pick_scaled = (entry.pick as u64)
@@ -58,8 +59,16 @@ pub fn score_entries(entries: &mut [RoundEntry]) -> Result<()> {
             .ok_or(DiamondError::MathOverflow)?;
 
         let target_scaled = sum.checked_mul(4).ok_or(DiamondError::MathOverflow)?;
+        msg!("Target scaled (sum * 4): {}", target_scaled);
 
         entry.distance = abs_diff_u64(pick_scaled, target_scaled);
+        msg!(
+            "Player {} -> pick: {}, pick_scaled: {}, distance: {}",
+            entry.player,
+            entry.pick,
+            pick_scaled,
+            entry.distance
+        );
     }
 
     Ok(())
@@ -115,6 +124,9 @@ pub fn apply_round_result<'info>(
             msg!("Player {} eliminated!", player_state.player);
         }
     }
+    for player_state in active_players.iter_mut() {
+        player_state.exit(&crate::ID)?;
+    }
     Ok(())
 }
 
@@ -128,6 +140,7 @@ pub fn resolve_after_round<'info>(
         .filter(|p| p.status == PlayerStatus::Active)
         .map(|p| p.player)
         .collect();
+    msg!("Round count: {}", room.current_round);
 
     match survivors.len() {
         0 => {
@@ -144,12 +157,15 @@ pub fn resolve_after_round<'info>(
             winner_state.status = PlayerStatus::Winner;
             room.winner = Some(winner);
             room.status = RoomStatus::Finished;
+            // Persist the winner
+            winner_state.exit(&crate::ID)?;
         }
         _ => {
             // continue game -> next round
             advance_round(room)?;
         }
     }
+    room.exit(&crate::ID)?;
     Ok(())
 }
 
@@ -159,6 +175,11 @@ fn advance_round<'info>(room: &mut Account<'info, Room>) -> Result<()> {
         .checked_add(1)
         .ok_or(DiamondError::MathOverflow)?;
 
+    let now = Clock::get()?.unix_timestamp;
+    // set fresh deadlines for the next round
+    room.commit_deadline = now + COMMIT_DURATION;
+    room.reveal_deadline = now + COMMIT_DURATION + REVEAL_DURATION;
+    room.exit(&crate::ID)?;
     Ok(())
 }
 

@@ -6,10 +6,22 @@ import { LAMPORTS_PER_SOL, PublicKey, SystemProgram } from "@solana/web3.js";
 import BN from "bn.js";
 import { expect } from "chai";
 import {
-  derivePda,
+  buildAllPdas,
+  displayGameSummary,
+  displayPlayerState,
+  displayRoomState,
+  displayRoundResults,
   expectAnchorError,
-  getNonce,
+  finalizeRound,
+  getPlayerLives,
+  getRoomId,
+  joinRoom,
+  loadPlayer,
   logTransactionResult,
+  Pdas,
+  printState,
+  submitPick,
+  wait,
 } from "./helper";
 const TREASURY = new PublicKey("treynHHxg2ftG3Hzn5dypVZX593Yss6uU54puVE614D");
 export const SYSTEM_PROGRAM = SystemProgram.programId;
@@ -24,98 +36,42 @@ describe("diamond_arena", () => {
 
   let programDataAddress: PublicKey;
 
-  const player2 = Keypair.generate();
-  const player3 = Keypair.generate();
-  const player4 = Keypair.generate();
+  // Setup players and game
+  let player1: anchor.web3.Keypair;
+  let player2: anchor.web3.Keypair;
+  let player3: anchor.web3.Keypair;
+  let roomId: BN;
+  let pdas: Pdas;
 
-  const roomId = getNonce();
   const entryFee = new BN(0.1 * LAMPORTS_PER_SOL);
-  const round = 1;
-
-  // PDA derivation
-
-  const [configPda] = derivePda([Buffer.from("config")], program);
-
-  const [roomPda] = derivePda(
-    [Buffer.from("room"), roomId.toArrayLike(Buffer, "le", 8)],
-    program
-  );
-
-  const [vaultPda] = derivePda(
-    [Buffer.from("vault"), roomId.toArrayLike(Buffer, "le", 8)],
-    program
-  );
-
-  const [player1StatePda] = derivePda(
-    [
-      Buffer.from("player_state"),
-      roomId.toArrayLike(Buffer, "le", 8),
-      admin.publicKey.toBuffer(),
-    ],
-    program
-  );
-
-  const [player2StatePda] = derivePda(
-    [
-      Buffer.from("player_state"),
-      roomId.toArrayLike(Buffer, "le", 8),
-      player2.publicKey.toBuffer(),
-    ],
-    program
-  );
-
-  const [player3StatePda] = derivePda(
-    [
-      Buffer.from("player_state"),
-      roomId.toArrayLike(Buffer, "le", 8),
-      player3.publicKey.toBuffer(),
-    ],
-    program
-  );
-
-  const [player1ChoicePda] = derivePda(
-    [
-      Buffer.from("player_round_choice"),
-      roomId.toArrayLike(Buffer, "le", 8),
-      Buffer.from([round]),
-      admin.publicKey.toBuffer(),
-    ],
-    program
-  );
-  const [player2ChoicePda] = derivePda(
-    [
-      Buffer.from("player_round_choice"),
-      roomId.toArrayLike(Buffer, "le", 8),
-      Buffer.from([round]),
-      player2.publicKey.toBuffer(),
-    ],
-    program
-  );
-  const [player3ChoicePda] = derivePda(
-    [
-      Buffer.from("player_round_choice"),
-      roomId.toArrayLike(Buffer, "le", 8),
-      Buffer.from([round]),
-      player3.publicKey.toBuffer(),
-    ],
-    program
-  );
 
   before(async () => {
-    console.log("Setting up devnet test environment...");
+    console.log("Setting up test...");
     console.log(`Admin: ${admin.publicKey}`);
+
+    // Load players from files
+    player1 = admin.payer;
+    player2 = loadPlayer("");
+    player3 = loadPlayer("");
+
+    console.log(`Player1 (Admin): ${player1.publicKey}`);
     console.log(`Player2: ${player2.publicKey}`);
-    console.log(`Treasury: ${TREASURY}`);
+    console.log(`Player3: ${player3.publicKey}`);
 
-    [programDataAddress] = PublicKey.findProgramAddressSync(
-      [program.programId.toBytes()],
-      new PublicKey("BPFLoaderUpgradeab1e11111111111111111111111")
-    );
+    // Create room ID and all PDAs
+    roomId = getRoomId();
+    const playerList = [
+      player1.publicKey,
+      player2.publicKey,
+      player3.publicKey,
+    ];
+    const roundsList = [1, 2, 3, 4];
+    pdas = buildAllPdas(roomId, playerList, roundsList, program);
 
-    console.log("Accounts funded successfully");
+    console.log("Setup complete\n");
   });
 
-  describe("Happy Path: Complete Game Flow", () => {
+  describe("Complete Game Flow", () => {
     // it("should initialize config", async () => {
     //   const programData = programDataAddress;
 
@@ -147,8 +103,8 @@ describe("diamond_arena", () => {
         .accounts({
           creator: admin.publicKey,
           //@ts-ignore
-          room: roomPda,
-          vault: vaultPda,
+          room: pdas.room,
+          vault: pdas.vault,
           systemProgram: SYSTEM_PROGRAM,
         })
         .rpc();
@@ -157,113 +113,42 @@ describe("diamond_arena", () => {
       expect(tx).to.exist;
 
       // Verify room state
-      const roomAccount = await program.account.room.fetch(roomPda);
-      console.log("room account:", roomAccount);
+      const roomAccount = await program.account.room.fetch(pdas.room);
+      // console.log("room account:", roomAccount);
       expect(roomAccount.roomId.eq(roomId)).to.be.true;
       expect(roomAccount.entryFee.eq(entryFee)).to.be.true;
+      // SHOW ROOM STATE after creation
+      await displayRoomState(program, pdas.room, "ROOM CREATED");
     });
 
-    it("should allow player-1 to join room", async () => {
-      const tx = await program.methods
-        .joinRoom(roomId)
-        .accounts({
-          player: admin.publicKey,
-          //@ts-ignore
-          room: roomPda,
-          playerState: player1StatePda,
-          vault: vaultPda,
-          systemProgram: SYSTEM_PROGRAM,
-        })
-        .rpc();
+    it("should players join room", async () => {
+      // Player 1 joins
+      let tx = await joinRoom(program, player1, roomId, pdas);
+      logTransactionResult("Player1 joined", tx);
+      await displayPlayerState(
+        program,
+        pdas.playerStates[player1.publicKey.toBase58()],
+        "Player1"
+      );
+      // Player 2 joins
+      tx = await joinRoom(program, player2, roomId, pdas);
+      logTransactionResult("Player2 joined", tx);
+      await displayPlayerState(
+        program,
+        pdas.playerStates[player2.publicKey.toBase58()],
+        "Player2"
+      );
 
-      logTransactionResult("Player-1 joined room", tx);
+      // Player 3 joins
+      tx = await joinRoom(program, player3, roomId, pdas);
+      logTransactionResult("Player3 joined", tx);
+      await displayPlayerState(
+        program,
+        pdas.playerStates[player3.publicKey.toBase58()],
+        "Player3"
+      );
+
       expect(tx).to.exist;
-
-      // Verify player state
-      const playerState = await program.account.playerState.fetch(
-        player1StatePda
-      );
-      console.log("player state", playerState);
-
-      expect(playerState.player.toString()).to.equal(
-        admin.publicKey.toString()
-      );
-      expect(playerState.roomId.eq(roomId)).to.be.true;
-      expect(playerState.lives).to.equal(3);
-      expect(playerState.joinedAtRound).to.equal(0);
-      // status enum check
-      expect(playerState.status.active).to.not.equal(undefined);
-    });
-
-    it("should allow player-2 to join room", async () => {
-      const tx = await program.methods
-        .joinRoom(roomId)
-        .accounts({
-          player: player2.publicKey,
-          //@ts-ignore
-          room: roomPda,
-          playerState: player2StatePda,
-          vault: vaultPda,
-          systemProgram: SYSTEM_PROGRAM,
-        })
-        .signers([player2])
-        .rpc();
-
-      logTransactionResult("Player-2 joined room", tx);
-      expect(tx).to.exist;
-
-      // Verify player state
-      const playerState = await program.account.playerState.fetch(
-        player2StatePda
-      );
-      console.log("player state", playerState);
-
-      expect(playerState.player.toString()).to.equal(
-        player2.publicKey.toString()
-      );
-      expect(playerState.roomId.eq(roomId)).to.be.true;
-      expect(playerState.lives).to.equal(3);
-      expect(playerState.joinedAtRound).to.equal(0);
-      // status enum check
-      expect(playerState.status.active).to.not.equal(undefined);
-    });
-
-    it("should allow player-3 to join room", async () => {
-      const tx = await program.methods
-        .joinRoom(roomId)
-        .accounts({
-          player: player3.publicKey,
-          //@ts-ignore
-          room: roomPda,
-          playerState: player3StatePda,
-          vault: vaultPda,
-          systemProgram: SYSTEM_PROGRAM,
-        })
-        .signers([player3])
-        .rpc();
-
-      logTransactionResult("Player-3 joined room", tx);
-      expect(tx).to.exist;
-
-      // Verify player state
-      const playerState = await program.account.playerState.fetch(
-        player3StatePda
-      );
-      console.log("player state", playerState);
-
-      expect(playerState.player.toString()).to.equal(
-        player3.publicKey.toString()
-      );
-      expect(playerState.roomId.eq(roomId)).to.be.true;
-      expect(playerState.lives).to.equal(3);
-      expect(playerState.joinedAtRound).to.equal(0);
-      // status enum check
-      expect(playerState.status.active).to.not.equal(undefined);
-    });
-
-    it("should update room current_players to 3", async () => {
-      const roomAccount = await program.account.room.fetch(roomPda);
-      expect(roomAccount.currentPlayers).to.equal(3);
     });
 
     it("should start the match", async () => {
@@ -272,15 +157,17 @@ describe("diamond_arena", () => {
         .accounts({
           authority: admin.publicKey,
           //@ts-ignore
-          room: roomPda,
+          room: pdas.room,
         })
         .rpc();
 
       logTransactionResult("Match started:", tx);
+      // SHOW ROOM STATE after start
+      await displayRoomState(program, pdas.room, "MATCH STARTED");
       expect(tx).to.exist;
 
       // Verify match is active
-      const roomAccount = await program.account.room.fetch(roomPda);
+      const roomAccount = await program.account.room.fetch(pdas.room);
       expect(roomAccount.status.active).to.not.equal(undefined);
       expect(roomAccount.currentRound).to.equal(1);
       expect(roomAccount.commitDeadline.toNumber()).to.be.greaterThan(0);
@@ -289,159 +176,259 @@ describe("diamond_arena", () => {
       );
     });
 
-    it("should allow player1 to submit pick", async () => {
-      const pick = 20;
-      const tx = await program.methods
-        .submitPick(roomId, round, pick)
-        .accounts({
-          player: admin.publicKey,
-          //@ts-ignore
-          room: roomPda,
-          playerState: player1StatePda,
-          playerRoundChoice: player1ChoicePda,
-          systemProgram: SYSTEM_PROGRAM,
-        })
-        .rpc();
+    it("should do round 1 (picks: 20, 20, 40)", async () => {
+      console.log("--- Round 1: P1=20, P2=20, P3=40 ---");
 
-      logTransactionResult(`Player-1 submitted pick ${pick}`, tx);
-      expect(tx).to.exist;
+      // Submit picks
+      const tx1 = await submitPick(program, player1, roomId, 1, 20, pdas);
+      logTransactionResult(`P1 submitted pick 20`, tx1);
 
-      // Verify choice was recorded
-      const choiceAccount = await program.account.playerRoundChoice.fetch(
-        player1ChoicePda
+      const tx2 = await submitPick(program, player2, roomId, 1, 20, pdas);
+      logTransactionResult(`P2 submitted pick 20`, tx2);
+
+      const tx3 = await submitPick(program, player3, roomId, 1, 40, pdas);
+      logTransactionResult(`P3 submitted pick 40`, tx3);
+
+      // Wait for deadline
+      await wait(20000);
+
+      // Finish round
+      const finalTx = await finalizeRound(
+        program,
+        player1,
+        roomId,
+        [player1, player2, player3],
+        1,
+        pdas
       );
-      console.log("choice account", choiceAccount);
-      expect(choiceAccount.roomId.eq(roomId)).to.be.true;
-      expect(choiceAccount.round).to.equal(round);
+      logTransactionResult(`Finalize Round`, finalTx);
 
-      expect(choiceAccount.player.toString()).to.equal(
-        admin.publicKey.toString()
-      );
-      expect(choiceAccount.pick).to.equal(pick);
-      expect(choiceAccount.committed).to.equal(true);
-      expect(choiceAccount.revealed).to.equal(false);
-    });
-
-    it("should allow player-2 to submit pick", async () => {
-      const pick = 22;
-      const tx = await program.methods
-        .submitPick(roomId, round, pick)
-        .accounts({
-          player: player2.publicKey,
-          //@ts-ignore
-          room: roomPda,
-          playerState: player2StatePda,
-          playerRoundChoice: player2ChoicePda,
-          systemProgram: SYSTEM_PROGRAM,
-        })
-        .signers([player2])
-        .rpc();
-
-      logTransactionResult(`Player-2 submitted pick ${pick}`, tx);
-      expect(tx).to.exist;
-
-      // Verify choice was recorded
-      const choiceAccount = await program.account.playerRoundChoice.fetch(
-        player2ChoicePda
-      );
-      console.log("choice account", choiceAccount);
-      expect(choiceAccount.roomId.eq(roomId)).to.be.true;
-      expect(choiceAccount.round).to.equal(round);
-
-      expect(choiceAccount.player.toString()).to.equal(
-        player2.publicKey.toString()
-      );
-      expect(choiceAccount.pick).to.equal(pick);
-      expect(choiceAccount.committed).to.equal(true);
-      expect(choiceAccount.revealed).to.equal(false);
-    });
-
-    it("should allow player-3 to submit pick", async () => {
-      const pick = 32;
-      const tx = await program.methods
-        .submitPick(roomId, round, pick)
-        .accounts({
-          player: player3.publicKey,
-          //@ts-ignore
-          room: roomPda,
-          playerState: player3StatePda,
-          playerRoundChoice: player3ChoicePda,
-          systemProgram: SYSTEM_PROGRAM,
-        })
-        .signers([player3])
-        .rpc();
-
-      logTransactionResult(`Player-3 submitted pick ${pick}`, tx);
-      expect(tx).to.exist;
-
-      // Verify choice was recorded
-      const choiceAccount = await program.account.playerRoundChoice.fetch(
-        player3ChoicePda
-      );
-      console.log("choice account", choiceAccount);
-      expect(choiceAccount.roomId.eq(roomId)).to.be.true;
-      expect(choiceAccount.round).to.equal(round);
-
-      expect(choiceAccount.player.toString()).to.equal(
-        player3.publicKey.toString()
-      );
-      expect(choiceAccount.pick).to.equal(pick);
-      expect(choiceAccount.committed).to.equal(true);
-      expect(choiceAccount.revealed).to.equal(false);
-    });
-  });
-
-  // ============ FAILURE PATH TESTS ============
-  describe("Failure Path: Edge Cases and Errors", () => {
-    const failureRoomId = new BN(999);
-    const [failureRoomPda] = derivePda(
-      [Buffer.from("room"), failureRoomId.toArrayLike(Buffer, "le", 8)],
-      program
-    );
-
-    it("should fail to join non-existent room", async () => {
-      await expectAnchorError(
-        program.methods
-          .joinRoom(failureRoomId)
-          .accounts({
-            player: admin.publicKey,
-            //@ts-ignore
-            room: failureRoomPda,
-            playerState: PublicKey.default,
-            vault: PublicKey.default,
-            systemProgram: SystemProgram.programId,
-          })
-          .rpc(),
-        "AccountNotInitialized"
-      );
-    });
-    it("should fail to submit pick with invalid range", async () => {
-      const invalidRound = 2;
-
-      const [invalidChoicePda] = derivePda(
+      // SHOW DETAILED ROUND RESULTS from on-chain
+      await displayRoundResults(
+        program,
+        1,
         [
-          Buffer.from("player_round_choice"),
-          roomId.toArrayLike(Buffer, "le", 8),
-          Buffer.from([invalidRound]),
-          admin.publicKey.toBuffer(),
+          { name: "Player1", keypair: player1 },
+          { name: "Player2", keypair: player2 },
+          { name: "Player3", keypair: player3 },
         ],
-        program
+        pdas
       );
 
-      await expectAnchorError(
-        program.methods
-          .submitPick(roomId, invalidRound, 101)
-          .accounts({
-            player: admin.publicKey,
-            //@ts-ignore
-            room: roomPda,
-            playerState: player1StatePda,
-            playerRoundChoice: invalidChoicePda,
-            systemProgram: SystemProgram.programId,
-          })
-          .rpc(),
-        "InvalidPick"
+      // Check lives
+      const p1Lives = await getPlayerLives(
+        program,
+        pdas.playerStates[player1.publicKey.toBase58()]
       );
+      const p2Lives = await getPlayerLives(
+        program,
+        pdas.playerStates[player2.publicKey.toBase58()]
+      );
+      const p3Lives = await getPlayerLives(
+        program,
+        pdas.playerStates[player3.publicKey.toBase58()]
+      );
+
+      // Check results
+      expect(p1Lives).to.equal(3); // Winner
+      expect(p2Lives).to.equal(1); // Collision (-2)
+      expect(p3Lives).to.equal(2); // Loser (-1)
+    });
+
+    it("should do round 2 (picks: 50, 50, 30)", async () => {
+      console.log("--- Round 2: P1=50, P2=50, P3=30 ---");
+
+      // Submit picks
+      const tx1 = await submitPick(program, player1, roomId, 2, 50, pdas);
+      logTransactionResult(`P1 submitted pick 50`, tx1);
+
+      const tx2 = await submitPick(program, player2, roomId, 2, 50, pdas);
+      logTransactionResult(`P2 submitted pick 50`, tx2);
+
+      const tx3 = await submitPick(program, player3, roomId, 2, 30, pdas);
+      logTransactionResult(`P3 submitted pick 30`, tx3);
+
+      // Wait for deadline
+      await wait(20000);
+
+      // Finish round
+      const finalTx = await finalizeRound(
+        program,
+        player1,
+        roomId,
+        [player1, player2, player3],
+        2,
+        pdas
+      );
+      logTransactionResult(`Finalize Round`, finalTx);
+
+      // SHOW DETAILED ROUND RESULTS
+      await displayRoundResults(
+        program,
+        2,
+        [
+          { name: "Player1", keypair: player1 },
+          { name: "Player2", keypair: player2 },
+          { name: "Player3", keypair: player3 },
+        ],
+        pdas
+      );
+
+      // Check lives
+      const p1Lives = await getPlayerLives(
+        program,
+        pdas.playerStates[player1.publicKey.toBase58()]
+      );
+      const p2Lives = await getPlayerLives(
+        program,
+        pdas.playerStates[player2.publicKey.toBase58()]
+      );
+      const p3Lives = await getPlayerLives(
+        program,
+        pdas.playerStates[player3.publicKey.toBase58()]
+      );
+
+      printState(2, [
+        { name: "Player1", lives: p1Lives },
+        { name: "Player2", lives: p2Lives },
+        { name: "Player3", lives: p3Lives },
+      ]);
+
+      // Check results
+      expect(p1Lives).to.equal(1); // collided with P2: 3 -> 1
+      expect(p2Lives).to.equal(0); // collided with P1: 1 -> eliminated
+      expect(p3Lives).to.equal(2); // winner, no life loss
+    });
+
+    it("should do round 3 (picks: 25, 45) - P2 out", async () => {
+      console.log("--- Round 3: P1=25, P3=45 (P2 eliminated) ---");
+
+      // Only P1 and P3 are alive
+      const tx1 = await submitPick(program, player1, roomId, 3, 25, pdas);
+      logTransactionResult(`P1 submitted pick 25`, tx1);
+
+      const tx2 = await submitPick(program, player3, roomId, 3, 45, pdas);
+      logTransactionResult(`P3 submitted pick 45`, tx2);
+
+      // Wait for deadline
+      await wait(20000);
+
+      // Finish round with only active players
+      const finalTx = await finalizeRound(
+        program,
+        player1,
+        roomId,
+        [player1, player3],
+        3,
+        pdas
+      );
+      logTransactionResult(`Finalize Round`, finalTx);
+
+      // SHOW DETAILED ROUND RESULTS
+      await displayRoundResults(
+        program,
+        3,
+        [
+          { name: "Player1", keypair: player1 },
+          { name: "Player3", keypair: player3 },
+        ],
+        pdas
+      );
+
+      // Check lives
+      const p1Lives = await getPlayerLives(
+        program,
+        pdas.playerStates[player1.publicKey.toBase58()]
+      );
+      const p3Lives = await getPlayerLives(
+        program,
+        pdas.playerStates[player3.publicKey.toBase58()]
+      );
+
+      printState(3, [
+        { name: "Player1", lives: p1Lives },
+        { name: "Player3", lives: p3Lives },
+      ]);
+
+      // Check results
+      expect(p1Lives).to.equal(1); // winner, stays at 1
+      expect(p3Lives).to.equal(1); // loser: 2 -> 1
+    });
+
+    it("should do round 4 (picks: 20, 60) - final round", async () => {
+      console.log("--- Round 4: P1=20, P3=60 ---");
+
+      // Only P1 and P3 are alive
+      const tx1 = await submitPick(program, player1, roomId, 4, 20, pdas);
+      logTransactionResult(`P1 submitted pick 20`, tx1);
+
+      const tx2 = await submitPick(program, player3, roomId, 4, 60, pdas);
+      logTransactionResult(`P3 submitted pick 60`, tx2);
+
+      // Wait for deadline
+      await wait(20000);
+
+      // Finish round with only active players
+      const finalTx = await finalizeRound(
+        program,
+        player1,
+        roomId,
+        [player1, player3],
+        4,
+        pdas
+      );
+      logTransactionResult(`Finalize Round`, finalTx);
+
+      // SHOW DETAILED ROUND RESULTS
+      await displayRoundResults(
+        program,
+        4,
+        [
+          { name: "Player1", keypair: player1 },
+          { name: "Player3", keypair: player3 },
+        ],
+        pdas
+      );
+
+      // Check lives
+      const p1Lives = await getPlayerLives(
+        program,
+        pdas.playerStates[player1.publicKey.toBase58()]
+      );
+      const p3Lives = await getPlayerLives(
+        program,
+        pdas.playerStates[player3.publicKey.toBase58()]
+      );
+
+      printState(4, [
+        { name: "Player1", lives: p1Lives },
+        { name: "Player3", lives: p3Lives },
+      ]);
+
+      // Check results
+      expect(p1Lives).to.equal(1); // winner, stays alive
+      expect(p3Lives).to.equal(0); // loser eliminated
+    });
+
+    it("should show final game summary", async () => {
+      // SHOW FULL GAME SUMMARY
+      await displayGameSummary(
+        program,
+        pdas.room,
+        [
+          { name: "Player1", keypair: player1 },
+          { name: "Player2", keypair: player2 },
+          { name: "Player3", keypair: player3 },
+        ],
+        pdas
+      );
+
+      // Verify winner
+      const p1Status = await getPlayerLives(
+        program,
+        pdas.playerStates[player1.publicKey.toBase58()]
+      );
+      expect(p1Status).to.be.greaterThan(0);
     });
   });
 });

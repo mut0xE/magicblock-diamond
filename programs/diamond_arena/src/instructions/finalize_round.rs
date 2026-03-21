@@ -1,5 +1,5 @@
 use crate::{
-    constants::{MAX_NUMBER, ROOM_SEED},
+    constants::{COLLISION_RULE_ENABLED_THRESHOLD, MAX_NUMBER, ROOM_SEED},
     error::DiamondError,
     helper::{
         apply_round_result, find_collisions, pick_round_winner, resolve_after_round, score_entries,
@@ -43,20 +43,25 @@ impl<'info> FinalizeRound<'info> {
         //  Load all ACTIVE players from remaining_accounts
         let mut active_players = load_active_player_states(remaining_accounts, room_key)?;
 
+        let player_count = active_players.len();
         // Need at least 2 players to run a round
-        require!(
-            active_players.len() >= 2,
-            DiamondError::NotEnoughActivePlayers
-        );
+        require!(player_count >= 2, DiamondError::NotEnoughActivePlayers);
 
         // Load all ROUND CHOICES for this round
-        let mut round_choices = load_round_choices(remaining_accounts, room_key, current_round)?;
+        let round_choices = load_round_choices(remaining_accounts, room_key, current_round)?;
         // Build entries (player + their pick)
         let mut entries = build_round_entries(&active_players, &round_choices)?;
 
         //  Collision penalty (same pick = extra damage)
-        let collision_picks = find_collisions(&entries);
-
+        let collision_picks = if player_count > COLLISION_RULE_ENABLED_THRESHOLD {
+            find_collisions(&entries)
+        } else {
+            msg!(
+                "Final round ({} players): collision rule disabled",
+                player_count
+            );
+            Vec::new()
+        };
         // Calculate target + distances
         score_entries(&mut entries)?;
 
@@ -66,9 +71,6 @@ impl<'info> FinalizeRound<'info> {
         // Round result with collision penalty
         apply_round_result(&mut active_players, winner, &collision_picks, &entries)?;
 
-        for choice in round_choices.iter_mut() {
-            choice.revealed = true;
-        }
         // Check if game ends or continue
         resolve_after_round(room, &mut active_players)?;
 

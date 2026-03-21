@@ -13,5 +13,7 @@ pub const MAX_NUMBER: u8 = 100;
 
 pub const DISCRIMINATOR: usize = 8;
 
-pub const COMMIT_DURATION: i64 = 30;
-pub const REVEAL_DURATION: i64 = 15;
+pub const COMMIT_DURATION: i64 = 10;
+pub const REVEAL_DURATION: i64 = 2;
+
+pub const COLLISION_RULE_ENABLED_THRESHOLD: usize = 2;
