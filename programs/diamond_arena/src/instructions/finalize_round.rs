@@ -48,7 +48,7 @@ impl<'info> FinalizeRound<'info> {
         require!(player_count >= 2, DiamondError::NotEnoughActivePlayers);
 
         // Load all ROUND CHOICES for this round
-        let round_choices = load_round_choices(remaining_accounts, room_key, current_round)?;
+        let mut round_choices = load_round_choices(remaining_accounts, room_key, current_round)?;
         // Build entries (player + their pick)
         let mut entries = build_round_entries(&active_players, &round_choices)?;
 
@@ -70,6 +70,12 @@ impl<'info> FinalizeRound<'info> {
 
         // Round result with collision penalty
         apply_round_result(&mut active_players, winner, &collision_picks, &entries)?;
+
+        for choice in round_choices.iter_mut() {
+            choice.pick = None;
+            choice.committed = false;
+            choice.timestamp = 0;
+        }
 
         // Check if game ends or continue
         resolve_after_round(room, &mut active_players)?;

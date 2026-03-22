@@ -8,20 +8,18 @@ import { expect } from "chai";
 import {
   buildAllPdas,
   delegatePlayerStates,
-  displayGameSummary,
   displayPlayerState,
   displayRoomState,
-  displayRoundResults,
   expectAnchorError,
   finalizeRound,
   getPda,
   getPlayerLives,
+  getPlayerRoundChoicePda,
   getRoomFromER,
   getRoomId,
   joinRoom,
   loadPlayer,
   logTransactionResult,
-  Pdas,
   printState,
   startMatchViaMagicRouter,
   submitPick,
@@ -46,7 +44,7 @@ describe("diamond_arena", () => {
   let player2: anchor.web3.Keypair;
   let player3: anchor.web3.Keypair;
   let roomId: BN;
-  let pdas: Pdas;
+  let pdas;
 
   const entryFee = new BN(0.1 * LAMPORTS_PER_SOL);
 
@@ -69,36 +67,36 @@ describe("diamond_arena", () => {
       player3.publicKey,
     ];
     const roundsList = [1, 2, 3, 4];
-    pdas = buildAllPdas(roomId, playerList, roundsList, program);
+    pdas = buildAllPdas(roomId, playerList, program);
 
     console.log("Setup complete\n");
   });
 
   describe("Complete Game Flow", () => {
-    // it("should initialize config", async () => {
-    //   const programData = programDataAddress;
+    it("should initialize config", async () => {
+      const programData = programDataAddress;
 
-    //   const tx = await program.methods
-    //     .initialzeConfig(TREASURY, 100) // 1%
-    //     .accounts({
-    //       admin: admin.publicKey,
-    //       //@ts-ignore
-    //       config: configPda,
-    //       systemProgram: SYSTEM_PROGRAM,
-    //       thisProgram: program.programId,
-    //       programData,
-    //     })
-    //     .rpc();
+      const tx = await program.methods
+        .initialzeConfig(TREASURY, 100) // 1%
+        .accounts({
+          admin: admin.publicKey,
+          //@ts-ignore
+          config: configPda,
+          systemProgram: SYSTEM_PROGRAM,
+          thisProgram: program.programId,
+          programData,
+        })
+        .rpc();
 
-    //   logTransactionResult("Config initialized", tx);
-    //   expect(tx).to.exist;
+      logTransactionResult("Config initialized", tx);
+      expect(tx).to.exist;
 
-    //   const configAccount = await program.account.config.fetch(configPda);
-    //   // console.log("config account:", configAccount);
-    //   expect(configAccount.admin.toBase58()).equals(admin.publicKey.toBase58());
-    //   expect(configAccount.feeBps).equals(100);
-    //   expect(configAccount.treasury.toBase58()).equals(TREASURY.toBase58());
-    // });
+      const configAccount = await program.account.config.fetch(configPda);
+      // console.log("config account:", configAccount);
+      expect(configAccount.admin.toBase58()).equals(admin.publicKey.toBase58());
+      expect(configAccount.feeBps).equals(100);
+      expect(configAccount.treasury.toBase58()).equals(TREASURY.toBase58());
+    });
 
     it("should create a room", async () => {
       const tx = await program.methods
@@ -126,7 +124,7 @@ describe("diamond_arena", () => {
 
     it("should players join room", async () => {
       // Player 1 joins
-      let tx = await joinRoom(program, player1, roomId, pdas);
+      let tx = await joinRoom(program, player1, roomId);
       logTransactionResult("Player1 joined", tx);
       await displayPlayerState(
         program,
@@ -134,7 +132,7 @@ describe("diamond_arena", () => {
         "Player1"
       );
       // Player 2 joins
-      tx = await joinRoom(program, player2, roomId, pdas);
+      tx = await joinRoom(program, player2, roomId);
       logTransactionResult("Player2 joined", tx);
       await displayPlayerState(
         program,
@@ -143,14 +141,29 @@ describe("diamond_arena", () => {
       );
 
       // Player 3 joins
-      tx = await joinRoom(program, player3, roomId, pdas);
+      tx = await joinRoom(program, player3, roomId);
       logTransactionResult("Player3 joined", tx);
+
       await displayPlayerState(
         program,
         pdas.playerStates[player3.publicKey.toBase58()],
         "Player3"
       );
+      const player1Choice = await program.account.playerRoundChoice.fetch(
+        getPlayerRoundChoicePda(roomId, player1.publicKey, program)
+      );
+      console.log("Player1 choice:", player1Choice);
 
+      const player2Choice = await program.account.playerRoundChoice.fetch(
+        getPlayerRoundChoicePda(roomId, player2.publicKey, program)
+      );
+      console.log("Player2 choice:", player2Choice);
+
+      const player3Choice = await program.account.playerRoundChoice.fetch(
+        getPlayerRoundChoicePda(roomId, player3.publicKey, program)
+      );
+
+      console.log("Player3 choice:", player3Choice);
       expect(tx).to.exist;
     });
 

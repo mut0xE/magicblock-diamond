@@ -1,7 +1,7 @@
 use anchor_lang::prelude::*;
 use ephemeral_rollups_sdk::anchor::ephemeral;
 
-declare_id!("E6ZxrJxuJ2mcAuqSU5JD3GdWYWWkxUddz4i8QqujFxR2");
+declare_id!("CMZ49EUStUR9gj2PESATssmMu9hLPaUjhkgn8dmd85jY");
 mod constants;
 mod error;
 mod helper;
@@ -42,7 +42,7 @@ pub mod diamond_arena {
     }
 
     pub fn submit_pick(ctx: Context<SubmitPick>, room_id: u64, round: u8, pick: u8) -> Result<()> {
-        ctx.accounts.handler(room_id, round, pick, &ctx.bumps)
+        ctx.accounts.handler(room_id, round, pick)
     }
 
     pub fn finalize_round<'info>(

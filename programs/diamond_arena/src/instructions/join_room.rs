@@ -1,9 +1,12 @@
 use anchor_lang::{prelude::*, system_program::Transfer};
 
 use crate::{
-    constants::{DEFAULT_LIVES, DISCRIMINATOR, PLAYER_STATE_SEED, ROOM_SEED, VAULT_SEED},
+    constants::{
+        DEFAULT_LIVES, DISCRIMINATOR, PLAYER_ROUND_CHOICE_SEED, PLAYER_STATE_SEED, ROOM_SEED,
+        VAULT_SEED,
+    },
     error::DiamondError,
-    state::{PlayerState, PlayerStatus, Room, RoomStatus},
+    state::{PlayerRoundChoice, PlayerState, PlayerStatus, Room, RoomStatus},
 };
 
 #[derive(Accounts)]
@@ -29,6 +32,19 @@ pub struct JoinRoom<'info> {
             bump
         )]
     pub player_state: Account<'info, PlayerState>,
+
+    #[account(
+           init_if_needed,
+           payer = player,
+           space = DISCRIMINATOR + PlayerRoundChoice::INIT_SPACE,
+           seeds = [
+               PLAYER_ROUND_CHOICE_SEED,
+               &room_id.to_le_bytes(),
+               player.key().as_ref()
+           ],
+           bump
+       )]
+    pub player_round_choice: Account<'info, PlayerRoundChoice>,
 
     /// Vault account to hold all entry fees (system account)
     #[account(
@@ -77,6 +93,17 @@ impl<'info> JoinRoom<'info> {
             .prize_pool
             .checked_add(room.entry_fee)
             .ok_or(DiamondError::MathOverflow)?;
+
+        self.player_round_choice.set_inner(PlayerRoundChoice {
+            room_id,
+            round: 0,
+            player: self.player.key(),
+            pick: None,
+            committed: false,
+            revealed: false,
+            bump: bumps.player_round_choice,
+            timestamp: 0,
+        });
 
         Ok(())
     }

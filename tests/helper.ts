@@ -17,6 +17,14 @@ export function loadPlayer(filePath: string): anchor.web3.Keypair {
   const data = JSON.parse(fs.readFileSync(filePath, "utf8"));
   return anchor.web3.Keypair.fromSecretKey(Uint8Array.from(data));
 }
+export async function getPlayerChoiceByPlayer(
+  program: Program<DiamondArena>,
+  roomId: BN,
+  player: PublicKey
+) {
+  const choicePda = getPlayerRoundChoicePda(roomId, player, program);
+  return await getPlayerChoice(program, choicePda);
+}
 
 // Make a PDA address
 export function getPda(
@@ -60,57 +68,80 @@ export function wait(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-export interface Pdas {
-  room: PublicKey;
-  vault: PublicKey;
-  playerStates: { [key: string]: PublicKey }; // key = player pubkey
-  playerChoices: { [key: string]: PublicKey }; // key = "pubkey_round"
+export function getRoomPda(
+  roomId: BN,
+  program: Program<DiamondArena>
+): PublicKey {
+  return getPda(
+    [Buffer.from("room"), roomId.toArrayLike(Buffer, "le", 8)],
+    program
+  );
+}
+
+export function getVaultPda(
+  roomId: BN,
+  program: Program<DiamondArena>
+): PublicKey {
+  return getPda(
+    [Buffer.from("vault"), roomId.toArrayLike(Buffer, "le", 8)],
+    program
+  );
+}
+
+export function getPlayerStatePda(
+  roomId: BN,
+  player: PublicKey,
+  program: Program<DiamondArena>
+): PublicKey {
+  return getPda(
+    [
+      Buffer.from("player_state"),
+      roomId.toArrayLike(Buffer, "le", 8),
+      player.toBuffer(),
+    ],
+    program
+  );
+}
+
+export function getPlayerRoundChoicePda(
+  roomId: BN,
+  player: PublicKey,
+  program: Program<DiamondArena>
+): PublicKey {
+  return getPda(
+    [
+      Buffer.from("player_round_choice"),
+      roomId.toArrayLike(Buffer, "le", 8),
+      player.toBuffer(),
+    ],
+    program
+  );
 }
 
 export function buildAllPdas(
   roomId: BN,
   players: PublicKey[],
-  rounds: number[],
   program: Program<DiamondArena>
-): Pdas {
-  // Room and vault
-  const room = getPda(
-    [Buffer.from("room"), roomId.toArrayLike(Buffer, "le", 8)],
-    program
-  );
-  const vault = getPda(
-    [Buffer.from("vault"), roomId.toArrayLike(Buffer, "le", 8)],
-    program
-  );
+) {
+  const room = getRoomPda(roomId, program);
+  const vault = getVaultPda(roomId, program);
 
-  // Player state for each player
   const playerStates: { [key: string]: PublicKey } = {};
   for (const player of players) {
-    const key = player.toBase58();
-    playerStates[key] = getPda(
-      [
-        Buffer.from("player_state"),
-        roomId.toArrayLike(Buffer, "le", 8),
-        player.toBuffer(),
-      ],
+    playerStates[player.toBase58()] = getPlayerStatePda(
+      roomId,
+      player,
       program
     );
   }
-  // Player choices for each player and round
+
   const playerChoices: { [key: string]: PublicKey } = {};
   for (const player of players) {
-    for (const round of rounds) {
-      const key = `${player.toBase58()}_${round}`;
-      playerChoices[key] = getPda(
-        [
-          Buffer.from("player_round_choice"),
-          roomId.toArrayLike(Buffer, "le", 8),
-          Buffer.from([round]),
-          player.toBuffer(),
-        ],
-        program
-      );
-    }
+    playerChoices[player.toBase58()] = getPlayerRoundChoicePda(
+      roomId,
+      player,
+      program
+    );
   }
 
   return { room, vault, playerStates, playerChoices };
@@ -120,20 +151,30 @@ export function buildAllPdas(
 export async function joinRoom(
   program: Program<DiamondArena>,
   player: anchor.web3.Keypair,
-  roomId: BN,
-  pdas: Pdas
+  roomId: BN
 ): Promise<string> {
   const playerPubkey = player.publicKey;
-  const playerStatePda = pdas.playerStates[playerPubkey.toBase58()];
+  const playerStatePda = getPlayerStatePda(roomId, playerPubkey, program);
+  const choicePda = getPlayerRoundChoicePda(roomId, playerPubkey, program);
 
+  const playerRoundChoicePda = getPlayerRoundChoicePda(
+    roomId,
+    playerPubkey,
+    program
+  );
+
+  console.log("joining:", playerPubkey.toBase58());
+  console.log("playerStatePda:", playerStatePda.toBase58());
+  console.log("playerRoundChoicePda:", playerRoundChoicePda.toBase58());
   const tx = await program.methods
     .joinRoom(roomId)
     .accounts({
       player: playerPubkey,
       //@ts-ignore
-      room: pdas.room,
+      room: getRoomPda(roomId, program),
       playerState: playerStatePda,
-      vault: pdas.vault,
+      vault: getVaultPda(roomId, program),
+      playerRoundChoice: choicePda,
       systemProgram: SystemProgram.programId,
     })
     .signers([player])
@@ -142,25 +183,23 @@ export async function joinRoom(
   return tx;
 }
 
-// Submit a pick
 export async function submitPick(
   program: Program<DiamondArena>,
   player: anchor.web3.Keypair,
   roomId: BN,
   round: number,
-  pick: number,
-  pdas: Pdas
+  pick: number
 ): Promise<string> {
   const playerPubkey = player.publicKey;
-  const playerStatePda = pdas.playerStates[playerPubkey.toBase58()];
-  const choicePda = pdas.playerChoices[`${playerPubkey.toBase58()}_${round}`];
+  const playerStatePda = getPlayerStatePda(roomId, playerPubkey, program);
+  const choicePda = getPlayerRoundChoicePda(roomId, playerPubkey, program);
 
   const tx = await program.methods
     .submitPick(roomId, round, pick)
     .accounts({
       player: playerPubkey,
       //@ts-ignore
-      room: pdas.room,
+      room: getRoomPda(roomId, program),
       playerState: playerStatePda,
       playerRoundChoice: choicePda,
       systemProgram: SystemProgram.programId,
@@ -171,22 +210,18 @@ export async function submitPick(
   return tx;
 }
 
-// Finish a round
 export async function finalizeRound(
   program: Program<DiamondArena>,
   admin: anchor.web3.Keypair,
   roomId: BN,
-  activePlayers: anchor.web3.Keypair[],
-  round: number,
-  pdas: Pdas
+  activePlayers: anchor.web3.Keypair[]
 ): Promise<string> {
-  // Build remaining accounts list
   const remainingAccounts = [];
 
   for (const player of activePlayers) {
-    const key = player.publicKey.toBase58();
-    const playerStatePda = pdas.playerStates[key];
-    const choicePda = pdas.playerChoices[`${key}_${round}`];
+    const playerPubkey = player.publicKey;
+    const playerStatePda = getPlayerStatePda(roomId, playerPubkey, program);
+    const choicePda = getPlayerRoundChoicePda(roomId, playerPubkey, program);
 
     remainingAccounts.push({
       pubkey: playerStatePda,
@@ -205,7 +240,7 @@ export async function finalizeRound(
     .accounts({
       finalizer: admin.publicKey,
       //@ts-ignore
-      room: pdas.room,
+      room: getRoomPda(roomId, program),
     })
     .remainingAccounts(remainingAccounts)
     .rpc();
@@ -445,97 +480,6 @@ export async function displayPlayerState(
   console.log(`  Lives:    ${player.lives}`);
   console.log(`  Status:   ${player.status}`);
   console.log(`  Joined:   Round ${player.joinedAtRound}`);
-}
-
-export async function displayRoundResults(
-  program: Program<DiamondArena>,
-  round: number,
-  players: Array<{ name: string; keypair: anchor.web3.Keypair }>,
-  pdas: Pdas
-) {
-  console.log("\n╔════════════════════════════════════════════════════════╗");
-  console.log(`║ ROUND ${round} DETAILS`.padEnd(57) + "║");
-  console.log("╠════════════════════════════════════════════════════════╣");
-  console.log("║ PICKS:".padEnd(57) + "║");
-
-  // Get all picks for this round
-  for (const p of players) {
-    const choiceKey = `${p.keypair.publicKey.toBase58()}_${round}`;
-    const choicePda = pdas.playerChoices[choiceKey];
-
-    if (choicePda) {
-      const choice = await getPlayerChoice(program, choicePda);
-      console.log(
-        `║   ${p.name.padEnd(20)} picked:  ${choice.pick
-          .toString()
-          .padStart(2)}`.padEnd(57) + "║"
-      );
-    }
-  }
-
-  console.log("╠════════════════════════════════════════════════════════╣");
-  console.log("║ PLAYER STATES AFTER ROUND:".padEnd(57) + "║");
-
-  // Show all player states
-  for (const p of players) {
-    const playerPda = pdas.playerStates[p.keypair.publicKey.toBase58()];
-    const player = await getPlayerData(program, playerPda);
-    const statusIcon =
-      player.status === "WINNER"
-        ? "🏆"
-        : player.status === "ACTIVE"
-        ? "✓"
-        : player.status === "ELIMINATED"
-        ? "✗"
-        : "?";
-
-    console.log(
-      `║   ${p.name.padEnd(20)} Lives: ${
-        player.lives
-      }    Status: ${player.status.padEnd(11)} ${statusIcon}`.padEnd(57) + "║"
-    );
-  }
-
-  console.log("╚════════════════════════════════════════════════════════╝\n");
-}
-
-export async function displayGameSummary(
-  program: Program<DiamondArena>,
-  roomPda: PublicKey,
-  players: Array<{ name: string; keypair: anchor.web3.Keypair }>,
-  pdas: Pdas
-) {
-  const room = await getRoomData(program, roomPda);
-
-  console.log("\n╔════════════════════════════════════════════════════════╗");
-  console.log("║ GAME SUMMARY".padEnd(57) + "║");
-  console.log("╠════════════════════════════════════════════════════════╣");
-  console.log(`║ Final Round: ${room.currentRound}`.padEnd(57) + "║");
-  console.log(
-    `║ Winner: ${(room.winner === "None"
-      ? "Still playing..."
-      : room.winner
-    ).slice(0, 40)}`.padEnd(57) + "║"
-  );
-  console.log("╠════════════════════════════════════════════════════════╣");
-
-  for (const p of players) {
-    const playerPda = pdas.playerStates[p.keypair.publicKey.toBase58()];
-    const player = await getPlayerData(program, playerPda);
-    const status = player.status;
-
-    let icon = "";
-    if (status === "WINNER") icon = "🏆 WINNER";
-    else if (status === "ELIMINATED") icon = "💀 ELIMINATED";
-    else if (status === "ACTIVE") icon = "⚔️  FIGHTING";
-    else icon = "❓ UNKNOWN";
-
-    console.log(
-      `║ ${p.name.padEnd(20)} | Lives: ${player.lives} | ${icon.padEnd(25)}║`
-    );
-  }
-
-  console.log("╚════════════════════════════════════════════════════════╝\n");
 }
 
 /**
