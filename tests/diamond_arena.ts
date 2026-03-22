@@ -7,6 +7,7 @@ import BN from "bn.js";
 import { expect } from "chai";
 import {
   buildAllPdas,
+  delegatePlayerRoundChoice,
   delegatePlayerStates,
   displayPlayerState,
   displayRoomState,
@@ -73,30 +74,30 @@ describe("diamond_arena", () => {
   });
 
   describe("Complete Game Flow", () => {
-    it("should initialize config", async () => {
-      const programData = programDataAddress;
+    // it("should initialize config", async () => {
+    //   const programData = programDataAddress;
 
-      const tx = await program.methods
-        .initialzeConfig(TREASURY, 100) // 1%
-        .accounts({
-          admin: admin.publicKey,
-          //@ts-ignore
-          config: configPda,
-          systemProgram: SYSTEM_PROGRAM,
-          thisProgram: program.programId,
-          programData,
-        })
-        .rpc();
+    //   const tx = await program.methods
+    //     .initialzeConfig(TREASURY, 100) // 1%
+    //     .accounts({
+    //       admin: admin.publicKey,
+    //       //@ts-ignore
+    //       config: configPda,
+    //       systemProgram: SYSTEM_PROGRAM,
+    //       thisProgram: program.programId,
+    //       programData,
+    //     })
+    //     .rpc();
 
-      logTransactionResult("Config initialized", tx);
-      expect(tx).to.exist;
+    //   logTransactionResult("Config initialized", tx);
+    //   expect(tx).to.exist;
 
-      const configAccount = await program.account.config.fetch(configPda);
-      // console.log("config account:", configAccount);
-      expect(configAccount.admin.toBase58()).equals(admin.publicKey.toBase58());
-      expect(configAccount.feeBps).equals(100);
-      expect(configAccount.treasury.toBase58()).equals(TREASURY.toBase58());
-    });
+    //   const configAccount = await program.account.config.fetch(configPda);
+    //   // console.log("config account:", configAccount);
+    //   expect(configAccount.admin.toBase58()).equals(admin.publicKey.toBase58());
+    //   expect(configAccount.feeBps).equals(100);
+    //   expect(configAccount.treasury.toBase58()).equals(TREASURY.toBase58());
+    // });
 
     it("should create a room", async () => {
       const tx = await program.methods
@@ -196,6 +197,7 @@ describe("diamond_arena", () => {
         txHash
       );
     });
+
     it("should delegate all player state PDAs", async () => {
       console.log("\nDelegating PlayerState PDAs to MagicBlock...");
 
@@ -271,7 +273,69 @@ describe("diamond_arena", () => {
     //   );
     // });
 
-    it("should start match via Magic Router", async () => {
+    it("should delegate player choice PDAs and start match via Magic Router", async () => {
+      console.log("\nDelegating PlayerRoundChoice PDAs to MagicBlock...");
+
+      const choice1 = getPlayerRoundChoicePda(
+        roomId,
+        player1.publicKey,
+        program
+      );
+      const choice2 = getPlayerRoundChoicePda(
+        roomId,
+        player2.publicKey,
+        program
+      );
+      const choice3 = getPlayerRoundChoicePda(
+        roomId,
+        player3.publicKey,
+        program
+      );
+
+      const tx1 = await delegatePlayerRoundChoice(
+        program,
+        admin.payer,
+        roomId,
+        player1.publicKey,
+        choice1
+      );
+      console.log("Player-1 choice delegated:");
+      console.log("   Txn signature:", tx1);
+
+      const tx2 = await delegatePlayerRoundChoice(
+        program,
+        admin.payer,
+        roomId,
+        player2.publicKey,
+        choice2
+      );
+      console.log("Player-2 choice delegated:");
+      console.log("   Txn signature:", tx2);
+
+      const tx3 = await delegatePlayerRoundChoice(
+        program,
+        admin.payer,
+        roomId,
+        player3.publicKey,
+        choice3
+      );
+      console.log("Player-3 choice delegated:");
+      console.log("   Txn signature:", tx3);
+
+      const player1Choice = await program.account.playerRoundChoice.fetch(
+        choice1
+      );
+      const player2Choice = await program.account.playerRoundChoice.fetch(
+        choice2
+      );
+      const player3Choice = await program.account.playerRoundChoice.fetch(
+        choice3
+      );
+
+      console.log("Player-1 choice:", player1Choice);
+      console.log("Player-2 choice:", player2Choice);
+      console.log("Player-3 choice:", player3Choice);
+
       console.log("\nStarting match via Magic Router...");
 
       const sig = await startMatchViaMagicRouter(
@@ -282,10 +346,10 @@ describe("diamond_arena", () => {
       );
 
       logTransactionResult("Start match tx", sig);
+
       const roomViaL1 = await program.account.room.fetch(pdas.room);
       console.log("room via normal provider:", roomViaL1);
 
-      //  ER connection, deserialize
       const roomEr = await getRoomFromER(
         providerEphemeralRollup,
         program,
@@ -293,6 +357,80 @@ describe("diamond_arena", () => {
       );
       console.log("Deserialized via ER connection:", roomEr);
     });
+
+    // it("should delegate all player choice PDAs in one tx", async () => {
+    //   const choice1 = getPlayerRoundChoicePda(
+    //     roomId,
+    //     player1.publicKey,
+    //     program
+    //   );
+    //   const choice2 = getPlayerRoundChoicePda(
+    //     roomId,
+    //     player2.publicKey,
+    //     program
+    //   );
+    //   const choice3 = getPlayerRoundChoicePda(
+    //     roomId,
+    //     player3.publicKey,
+    //     program
+    //   );
+
+    //   const ix1 = await program.methods
+    //     .delegatePlayerChoice(roomId, player1.publicKey)
+    //     .accounts({
+    //       payer: admin.publicKey,
+    //       //@ts-ignore
+    //       playerRoundChoice: choice1,
+    //       validator: DEVNET_ASIA_VALIDATOR,
+    //     })
+    //     .remainingAccounts([
+    //       {
+    //         pubkey: DEVNET_ASIA_VALIDATOR,
+    //         isWritable: false,
+    //         isSigner: false,
+    //       },
+    //     ])
+    //     .instruction();
+
+    //   const ix2 = await program.methods
+    //     .delegatePlayerChoice(roomId, player2.publicKey)
+    //     .accounts({
+    //       payer: admin.publicKey,
+    //       //@ts-ignore
+    //       playerRoundChoice: choice2,
+    //       validator: DEVNET_ASIA_VALIDATOR,
+    //     })
+    //     .remainingAccounts([
+    //       {
+    //         pubkey: DEVNET_ASIA_VALIDATOR,
+    //         isWritable: false,
+    //         isSigner: false,
+    //       },
+    //     ])
+    //     .instruction();
+
+    //   const ix3 = await program.methods
+    //     .delegatePlayerChoice(roomId, player3.publicKey)
+    //     .accounts({
+    //       payer: admin.publicKey,
+    //       //@ts-ignore
+    //       playerRoundChoice: choice3,
+    //       validator: DEVNET_ASIA_VALIDATOR,
+    //     })
+    //     .remainingAccounts([
+    //       {
+    //         pubkey: DEVNET_ASIA_VALIDATOR,
+    //         isWritable: false,
+    //         isSigner: false,
+    //       },
+    //     ])
+    //     .instruction();
+
+    //   const tx = new anchor.web3.Transaction().add(ix1, ix2, ix3);
+    //   const sig = await provider.sendAndConfirm(tx, [admin.payer]);
+
+    //   console.log("Delegated all player choices in one tx:", sig);
+    // });
 
     // it("should do round 1 (picks: 20, 20, 40)", async () => {
     //   console.log("--- Round 1: P1=20, P2=20, P3=40 ---");

@@ -147,6 +147,32 @@ export function buildAllPdas(
   return { room, vault, playerStates, playerChoices };
 }
 
+export async function delegatePlayerRoundChoice(
+  program: Program<DiamondArena>,
+  payer: anchor.web3.Keypair,
+  roomId: anchor.BN,
+  player: PublicKey,
+  playerRoundChoicePda: PublicKey
+): Promise<string> {
+  return await program.methods
+    .delegatePlayerChoice(roomId, player)
+    .accounts({
+      payer: payer.publicKey,
+      //@ts-ignore
+      playerRoundChoice: playerRoundChoicePda,
+      validator: DEVNET_ASIA_VALIDATOR,
+    })
+    .remainingAccounts([
+      {
+        pubkey: DEVNET_ASIA_VALIDATOR,
+        isWritable: false,
+        isSigner: false,
+      },
+    ])
+    .signers([payer])
+    .rpc();
+}
+
 // Join room
 export async function joinRoom(
   program: Program<DiamondArena>,

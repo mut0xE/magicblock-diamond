@@ -68,4 +68,12 @@ pub mod diamond_arena {
     ) -> Result<()> {
         DelegatePlayerState::handler(ctx, room_id, player)
     }
+
+    pub fn delegate_player_choice(
+        ctx: Context<DelegatePlayerRoundChoice>,
+        room_id: u64,
+        player: Pubkey,
+    ) -> Result<()> {
+        DelegatePlayerRoundChoice::handler(ctx, room_id, player)
+    }
 }

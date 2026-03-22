@@ -1,5 +1,6 @@
 pub mod create_permission;
 pub mod create_room;
+pub mod delegate_player_choice;
 pub mod delegate_player_state;
 pub mod delegate_room;
 pub mod finalize_round;
@@ -11,6 +12,7 @@ pub mod submit_pick;
 
 pub use create_permission::*;
 pub use create_room::*;
+pub use delegate_player_choice::*;
 pub use delegate_player_state::*;
 pub use delegate_room::*;
 pub use finalize_round::*;
