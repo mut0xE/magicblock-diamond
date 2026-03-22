@@ -7,6 +7,7 @@ mod error;
 mod helper;
 mod instructions;
 mod state;
+use ephemeral_rollups_sdk::access_control::structs::Member;
 use instructions::*;
 
 #[program]
@@ -75,5 +76,13 @@ pub mod diamond_arena {
         player: Pubkey,
     ) -> Result<()> {
         DelegatePlayerRoundChoice::handler(ctx, room_id, player)
+    }
+
+    pub fn create_permission(
+        ctx: Context<CreatePermission>,
+        account_type: AccountType,
+        members: Option<Vec<Member>>,
+    ) -> Result<()> {
+        ctx.accounts.handler(account_type, members)
     }
 }

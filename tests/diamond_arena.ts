@@ -2,7 +2,13 @@ import * as anchor from "@coral-xyz/anchor";
 import { Program } from "@coral-xyz/anchor";
 import { DiamondArena } from "../target/types/diamond_arena";
 import fs from "fs";
-import { LAMPORTS_PER_SOL, PublicKey, SystemProgram } from "@solana/web3.js";
+import {
+  LAMPORTS_PER_SOL,
+  PublicKey,
+  sendAndConfirmTransaction,
+  SystemProgram,
+  Transaction,
+} from "@solana/web3.js";
 import BN from "bn.js";
 import { expect } from "chai";
 import {
@@ -11,10 +17,13 @@ import {
   delegatePlayerStates,
   displayPlayerState,
   displayRoomState,
+  displayRoundOutcomeFromER,
   expectAnchorError,
   finalizeRound,
+  finalizeRoundViaMagicRouter,
   getPda,
   getPlayerLives,
+  getPlayerRoundChoiceFromER,
   getPlayerRoundChoicePda,
   getRoomFromER,
   getRoomId,
@@ -23,12 +32,30 @@ import {
   logTransactionResult,
   printState,
   startMatchViaMagicRouter,
-  submitPick,
+  submitPickViaMagicRouter,
   wait,
 } from "./helper";
 import { DEVNET_ASIA_VALIDATOR, providerEphemeralRollup } from "./constants";
+import {
+  AUTHORITY_FLAG,
+  createDelegatePermissionInstruction,
+  Member,
+  permissionPdaFromAccount,
+  TX_LOGS_FLAG,
+  waitUntilPermissionActive,
+} from "@magicblock-labs/ephemeral-rollups-sdk";
 const TREASURY = new PublicKey("treynHHxg2ftG3Hzn5dypVZX593Yss6uU54puVE614D");
 export const SYSTEM_PROGRAM = SystemProgram.programId;
+
+const TEE_VALIDATOR = new PublicKey(
+  "FnE6VJT5QNZdedZPnCoLsARgBwoE6DeJNjBs2H1gySXA"
+);
+
+const PERMISSION_PROGRAM_ID = new PublicKey(
+  "ACLseoPoyC3cBqoUtkbjZ4aDrkurZW86v19pXz2XQnp1"
+);
+
+const teeUrl = "https://tee.magicblock.app";
 
 describe("diamond_arena", () => {
   const provider = anchor.AnchorProvider.env();
@@ -273,69 +300,7 @@ describe("diamond_arena", () => {
     //   );
     // });
 
-    it("should delegate player choice PDAs and start match via Magic Router", async () => {
-      console.log("\nDelegating PlayerRoundChoice PDAs to MagicBlock...");
-
-      const choice1 = getPlayerRoundChoicePda(
-        roomId,
-        player1.publicKey,
-        program
-      );
-      const choice2 = getPlayerRoundChoicePda(
-        roomId,
-        player2.publicKey,
-        program
-      );
-      const choice3 = getPlayerRoundChoicePda(
-        roomId,
-        player3.publicKey,
-        program
-      );
-
-      const tx1 = await delegatePlayerRoundChoice(
-        program,
-        admin.payer,
-        roomId,
-        player1.publicKey,
-        choice1
-      );
-      console.log("Player-1 choice delegated:");
-      console.log("   Txn signature:", tx1);
-
-      const tx2 = await delegatePlayerRoundChoice(
-        program,
-        admin.payer,
-        roomId,
-        player2.publicKey,
-        choice2
-      );
-      console.log("Player-2 choice delegated:");
-      console.log("   Txn signature:", tx2);
-
-      const tx3 = await delegatePlayerRoundChoice(
-        program,
-        admin.payer,
-        roomId,
-        player3.publicKey,
-        choice3
-      );
-      console.log("Player-3 choice delegated:");
-      console.log("   Txn signature:", tx3);
-
-      const player1Choice = await program.account.playerRoundChoice.fetch(
-        choice1
-      );
-      const player2Choice = await program.account.playerRoundChoice.fetch(
-        choice2
-      );
-      const player3Choice = await program.account.playerRoundChoice.fetch(
-        choice3
-      );
-
-      console.log("Player-1 choice:", player1Choice);
-      console.log("Player-2 choice:", player2Choice);
-      console.log("Player-3 choice:", player3Choice);
-
+    it("should start match via Magic Router", async () => {
       console.log("\nStarting match via Magic Router...");
 
       const sig = await startMatchViaMagicRouter(
@@ -356,6 +321,246 @@ describe("diamond_arena", () => {
         pdas.room
       );
       console.log("Deserialized via ER connection:", roomEr);
+    });
+
+    // it("should delegate player choice PDAs and start match via Magic Router", async () => {
+    //   console.log("\nDelegating PlayerRoundChoice PDAs to MagicBlock...");
+
+    //   const choice1 = getPlayerRoundChoicePda(
+    //     roomId,
+    //     player1.publicKey,
+    //     program
+    //   );
+    //   const choice2 = getPlayerRoundChoicePda(
+    //     roomId,
+    //     player2.publicKey,
+    //     program
+    //   );
+    //   const choice3 = getPlayerRoundChoicePda(
+    //     roomId,
+    //     player3.publicKey,
+    //     program
+    //   );
+
+    //   const tx1 = await delegatePlayerRoundChoice(
+    //     program,
+    //     admin.payer,
+    //     roomId,
+    //     player1.publicKey,
+    //     choice1
+    //   );
+    //   console.log("Player-1 choice delegated:");
+    //   console.log("   Txn signature:", tx1);
+
+    //   const tx2 = await delegatePlayerRoundChoice(
+    //     program,
+    //     admin.payer,
+    //     roomId,
+    //     player2.publicKey,
+    //     choice2
+    //   );
+    //   console.log("Player-2 choice delegated:");
+    //   console.log("   Txn signature:", tx2);
+
+    //   const tx3 = await delegatePlayerRoundChoice(
+    //     program,
+    //     admin.payer,
+    //     roomId,
+    //     player3.publicKey,
+    //     choice3
+    //   );
+    //   console.log("Player-3 choice delegated:");
+    //   console.log("   Txn signature:", tx3);
+
+    //   const player1Choice = await program.account.playerRoundChoice.fetch(
+    //     choice1
+    //   );
+    //   const player2Choice = await program.account.playerRoundChoice.fetch(
+    //     choice2
+    //   );
+    //   const player3Choice = await program.account.playerRoundChoice.fetch(
+    //     choice3
+    //   );
+
+    //   console.log("Player-1 choice:", player1Choice);
+    //   console.log("Player-2 choice:", player2Choice);
+    //   console.log("Player-3 choice:", player3Choice);
+
+    //   console.log("\nStarting match via Magic Router...");
+
+    //   const sig = await startMatchViaMagicRouter(
+    //     program,
+    //     admin.payer,
+    //     roomId,
+    //     pdas.room
+    //   );
+
+    //   logTransactionResult("Start match tx", sig);
+
+    //   const roomViaL1 = await program.account.room.fetch(pdas.room);
+    //   console.log("room via normal provider:", roomViaL1);
+
+    //   const roomEr = await getRoomFromER(
+    //     providerEphemeralRollup,
+    //     program,
+    //     pdas.room
+    //   );
+    //   console.log("Deserialized via ER connection:", roomEr);
+    // });
+
+    it("create permission + delegate choice accounts", async () => {
+      const players = [player1, player2, player3];
+
+      for (const player of players) {
+        const choicePda = getPlayerRoundChoicePda(
+          roomId,
+          player.publicKey,
+          program
+        );
+        const permissionPda = permissionPdaFromAccount(choicePda);
+
+        const members: Member[] = [
+          {
+            flags: AUTHORITY_FLAG | TX_LOGS_FLAG,
+            pubkey: player.publicKey,
+          },
+        ];
+
+        const createPermissionIx = await program.methods
+          .createPermission(
+            { playerRoundChoice: { roomId, player: player.publicKey } },
+            members
+          )
+          .accountsPartial({
+            payer: player.publicKey,
+            permissionedAccount: choicePda,
+            permission: permissionPda,
+            systemProgram: SystemProgram.programId,
+          })
+          .instruction();
+
+        const delegatePermissionIx = createDelegatePermissionInstruction({
+          payer: player.publicKey,
+          validator: TEE_VALIDATOR,
+          permissionedAccount: [choicePda, false],
+          authority: [player.publicKey, true],
+        });
+
+        const delegateChoiceIx = await program.methods
+          .delegatePlayerChoice(roomId, player.publicKey)
+          .accounts({
+            payer: player.publicKey,
+            validator: TEE_VALIDATOR,
+            //@ts-ignore
+            playerRoundChoice: choicePda,
+          })
+          .instruction();
+
+        const tx = new Transaction().add(
+          createPermissionIx,
+          delegatePermissionIx,
+          delegateChoiceIx
+        );
+        tx.feePayer = player.publicKey;
+
+        const sig = await sendAndConfirmTransaction(
+          provider.connection,
+          tx,
+          [player],
+          {
+            skipPreflight: true,
+            commitment: "confirmed",
+          }
+        );
+
+        logTransactionResult(
+          `Choice permission + delegation for ${player.publicKey}`,
+          sig
+        );
+
+        await waitUntilPermissionActive(teeUrl, choicePda);
+      }
+    });
+
+    it("should submit picks for round 1 via ER", async () => {
+      const tx1 = await submitPickViaMagicRouter(
+        program,
+        player1,
+        roomId,
+        1,
+        20
+      );
+      logTransactionResult("Player1 submitted pick 20", tx1);
+
+      const tx2 = await submitPickViaMagicRouter(
+        program,
+        player2,
+        roomId,
+        1,
+        20
+      );
+      logTransactionResult("Player2 submitted pick 20", tx2);
+
+      const tx3 = await submitPickViaMagicRouter(
+        program,
+        player3,
+        roomId,
+        1,
+        40
+      );
+      logTransactionResult("Player3 submitted pick 40", tx3);
+
+      const choice1 = await getPlayerRoundChoiceFromER(
+        providerEphemeralRollup,
+        program,
+        getPlayerRoundChoicePda(roomId, player1.publicKey, program)
+      );
+      const choice2 = await getPlayerRoundChoiceFromER(
+        providerEphemeralRollup,
+        program,
+        getPlayerRoundChoicePda(roomId, player2.publicKey, program)
+      );
+      const choice3 = await getPlayerRoundChoiceFromER(
+        providerEphemeralRollup,
+        program,
+        getPlayerRoundChoicePda(roomId, player3.publicKey, program)
+      );
+
+      console.log("Player1 choice on ER:", choice1);
+      console.log("Player2 choice on ER:", choice2);
+      console.log("Player3 choice on ER:", choice3);
+    });
+
+    it("should finalize round via TEE/ER", async () => {
+      await wait(20000);
+
+      const sig = await finalizeRoundViaMagicRouter(
+        program,
+        admin.payer,
+        roomId,
+        [player1, player2, player3],
+        1,
+        pdas
+      );
+
+      logTransactionResult("Finalize round tx", sig);
+
+      const roomEr = await getRoomFromER(
+        providerEphemeralRollup,
+        program,
+        pdas.room
+      );
+      console.log("Room on ER after finalize:", roomEr);
+      await displayRoundOutcomeFromER(
+        program,
+        roomId,
+        [
+          { name: "Player1", keypair: player1 },
+          { name: "Player2", keypair: player2 },
+          { name: "Player3", keypair: player3 },
+        ],
+        pdas.room
+      );
     });
 
     // it("should delegate all player choice PDAs in one tx", async () => {

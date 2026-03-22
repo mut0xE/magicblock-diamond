@@ -1,5 +1,7 @@
 use crate::{
-    constants::{COLLISION_RULE_ENABLED_THRESHOLD, MAX_NUMBER, ROOM_SEED},
+    constants::{
+        COLLISION_RULE_ENABLED_THRESHOLD, MAX_NUMBER, PLAYER_ROUND_CHOICE_SEED, ROOM_SEED,
+    },
     error::DiamondError,
     helper::{
         apply_round_result, find_collisions, pick_round_winner, resolve_after_round, score_entries,
@@ -8,6 +10,10 @@ use crate::{
     state::{PlayerRoundChoice, PlayerState, PlayerStatus, Room, RoomStatus},
 };
 use anchor_lang::prelude::*;
+use ephemeral_rollups_sdk::{
+    access_control::{instructions::UpdatePermissionCpiBuilder, structs::MembersArgs},
+    consts::PERMISSION_PROGRAM_ID,
+};
 
 #[derive(Accounts)]
 #[instruction(room_id: u64)]
@@ -22,12 +28,16 @@ pub struct FinalizeRound<'info> {
             constraint = room.status == RoomStatus::Active @ DiamondError::RoomNotActive,
         )]
     pub room: Account<'info, Room>,
+
+    /// CHECK: permission program
+    #[account(address = PERMISSION_PROGRAM_ID)]
+    pub permission_program: UncheckedAccount<'info>,
 }
 
 impl<'info> FinalizeRound<'info> {
     pub fn handler(
         &mut self,
-        _room_id: u64,
+        room_id: u64,
         remaining_accounts: &'info [AccountInfo<'info>],
     ) -> Result<()> {
         let room = &mut self.room;
@@ -40,6 +50,25 @@ impl<'info> FinalizeRound<'info> {
             DiamondError::RevealPhaseNotOver
         );
 
+        let mut choice_permissions: Vec<&AccountInfo<'info>> = Vec::new();
+        let mut active_players: Vec<Account<'info, PlayerState>> = Vec::new();
+        let mut round_choices: Vec<Account<'info, PlayerRoundChoice>> = Vec::new();
+
+        for chunk in remaining_accounts.chunks_exact(3) {
+            let player_state = Account::<PlayerState>::try_from(&chunk[0])?;
+            let choice = Account::<PlayerRoundChoice>::try_from(&chunk[1])?;
+            let permission = &chunk[2];
+
+            if player_state.room_id == room_key && player_state.status == PlayerStatus::Active {
+                active_players.push(player_state);
+            }
+
+            if choice.room_id == room_key && choice.round == current_round {
+                round_choices.push(choice);
+                choice_permissions.push(permission);
+            }
+        }
+
         //  Load all ACTIVE players from remaining_accounts
         let mut active_players = load_active_player_states(remaining_accounts, room_key)?;
 
@@ -48,7 +77,7 @@ impl<'info> FinalizeRound<'info> {
         require!(player_count >= 2, DiamondError::NotEnoughActivePlayers);
 
         // Load all ROUND CHOICES for this round
-        let mut round_choices = load_round_choices(remaining_accounts, room_key, current_round)?;
+        // let mut round_choices = load_round_choices(remaining_accounts, room_key, current_round)?;
         // Build entries (player + their pick)
         let mut entries = build_round_entries(&active_players, &round_choices)?;
 
@@ -71,10 +100,23 @@ impl<'info> FinalizeRound<'info> {
         // Round result with collision penalty
         apply_round_result(&mut active_players, winner, &collision_picks, &entries)?;
 
-        for choice in round_choices.iter_mut() {
-            choice.pick = None;
-            choice.committed = false;
-            choice.timestamp = 0;
+        for (choice, permission_info) in round_choices.iter_mut().zip(choice_permissions.iter()) {
+            let room_id_bytes = choice.room_id.to_le_bytes();
+            let signer_seeds: &[&[u8]] = &[
+                PLAYER_ROUND_CHOICE_SEED,
+                &room_id_bytes,
+                choice.player.as_ref(),
+                &[choice.bump],
+            ];
+
+            UpdatePermissionCpiBuilder::new(&self.permission_program.to_account_info())
+                .permissioned_account(&choice.to_account_info(), true)
+                .authority(&choice.to_account_info(), false)
+                .permission(permission_info)
+                .args(MembersArgs { members: None })
+                .invoke_signed(&[signer_seeds])?;
+
+            msg!("Revealed choice for player {}", choice.player);
         }
 
         // Check if game ends or continue
@@ -83,6 +125,7 @@ impl<'info> FinalizeRound<'info> {
         Ok(())
     }
 }
+
 fn load_active_player_states<'info>(
     remaining_accounts: &'info [AccountInfo<'info>],
     room_key: u64,

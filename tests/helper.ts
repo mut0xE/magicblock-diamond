@@ -12,6 +12,7 @@ import { expect } from "chai";
 import { DiamondArena } from "../target/types/diamond_arena";
 import fs from "fs";
 import { DEVNET_ASIA_VALIDATOR, providerEphemeralRollup } from "./constants";
+import { permissionPdaFromAccount } from "@magicblock-labs/ephemeral-rollups-sdk";
 // Load player from file
 export function loadPlayer(filePath: string): anchor.web3.Keypair {
   const data = JSON.parse(fs.readFileSync(filePath, "utf8"));
@@ -147,6 +148,80 @@ export function buildAllPdas(
   return { room, vault, playerStates, playerChoices };
 }
 
+export async function finalizeRoundViaMagicRouter(
+  program: Program<DiamondArena>,
+  signer: anchor.web3.Keypair,
+  roomId: BN,
+  activePlayers: anchor.web3.Keypair[],
+  round: number,
+  pdas: ReturnType<typeof buildAllPdas>
+): Promise<string> {
+  const remainingAccounts = [];
+
+  for (const player of activePlayers) {
+    const key = player.publicKey.toBase58();
+    const playerStatePda = pdas.playerStates[key];
+    const choicePda = getPlayerRoundChoicePda(
+      roomId,
+      player.publicKey,
+      program
+    );
+    const permissionPda = permissionPdaFromAccount(choicePda);
+
+    remainingAccounts.push({
+      pubkey: playerStatePda,
+      isWritable: true,
+      isSigner: false,
+    });
+
+    remainingAccounts.push({
+      pubkey: choicePda,
+      isWritable: true,
+      isSigner: false,
+    });
+
+    remainingAccounts.push({
+      pubkey: permissionPda,
+      isWritable: true,
+      isSigner: false,
+    });
+  }
+
+  const ix = await program.methods
+    .finalizeRound(roomId)
+    .accounts({
+      finalizer: signer.publicKey,
+      //@ts-ignore
+      room: pdas.room,
+      permissionProgram: new PublicKey(
+        "ACLseoPoyC3cBqoUtkbjZ4aDrkurZW86v19pXz2XQnp1"
+      ),
+    })
+    .remainingAccounts(remainingAccounts)
+    .instruction();
+
+  const latestBlockhash = await providerEphemeralRollup.getLatestBlockhash();
+
+  const tx = new Transaction().add(ix);
+  tx.feePayer = signer.publicKey;
+  tx.recentBlockhash = latestBlockhash.blockhash;
+
+  const signature = await providerEphemeralRollup.sendTransaction(
+    tx,
+    [signer],
+    {
+      skipPreflight: true,
+    }
+  );
+
+  await providerEphemeralRollup.confirmTransaction({
+    signature,
+    ...latestBlockhash,
+  });
+
+  return signature;
+}
+
 export async function delegatePlayerRoundChoice(
   program: Program<DiamondArena>,
   payer: anchor.web3.Keypair,
@@ -209,31 +284,77 @@ export async function joinRoom(
   return tx;
 }
 
-export async function submitPick(
+// export async function submitPick(
+//   program: Program<DiamondArena>,
+//   player: anchor.web3.Keypair,
+//   roomId: BN,
+//   round: number,
+//   pick: number
+// ): Promise<string> {
+//   const playerPubkey = player.publicKey;
+//   const playerStatePda = getPlayerStatePda(roomId, playerPubkey, program);
+//   const choicePda = getPlayerRoundChoicePda(roomId, playerPubkey, program);
+
+//   const tx = await program.methods
+//     .submitPick(roomId, round, pick)
+//     .accounts({
+//       player: playerPubkey,
+//       //@ts-ignore
+//       room: getRoomPda(roomId, program),
+//       playerState: playerStatePda,
+//       playerRoundChoice: choicePda,
+//       systemProgram: SystemProgram.programId,
+//     })
+//     .signers([player])
+//     .rpc();
+
+//   return tx;
+// }
+
+export async function submitPickViaMagicRouter(
   program: Program<DiamondArena>,
-  player: anchor.web3.Keypair,
+  signer: anchor.web3.Keypair,
   roomId: BN,
   round: number,
   pick: number
 ): Promise<string> {
-  const playerPubkey = player.publicKey;
+  const playerPubkey = signer.publicKey;
   const playerStatePda = getPlayerStatePda(roomId, playerPubkey, program);
   const choicePda = getPlayerRoundChoicePda(roomId, playerPubkey, program);
+  const roomPda = getRoomPda(roomId, program);
 
-  const tx = await program.methods
+  const ix = await program.methods
     .submitPick(roomId, round, pick)
     .accounts({
       player: playerPubkey,
       //@ts-ignore
-      room: getRoomPda(roomId, program),
+      room: roomPda,
       playerState: playerStatePda,
       playerRoundChoice: choicePda,
       systemProgram: SystemProgram.programId,
     })
-    .signers([player])
-    .rpc();
+    .instruction();
 
-  return tx;
+  const latestBlockhash = await providerEphemeralRollup.getLatestBlockhash();
+
+  const tx = new Transaction().add(ix);
+  tx.feePayer = signer.publicKey;
+  tx.recentBlockhash = latestBlockhash.blockhash;
+
+  const signature = await providerEphemeralRollup.sendTransaction(
+    tx,
+    [signer],
+    {
+      skipPreflight: true,
+    }
+  );
+
+  await providerEphemeralRollup.confirmTransaction({
+    signature,
+    ...latestBlockhash,
+  });
+
+  return signature;
 }
 
 export async function finalizeRound(
@@ -706,4 +827,71 @@ export async function getGameStateFromER(
   console.log(`Player States: ${JSON.stringify(playerStates, null, 2)}\n`);
 
   return { room, playerStates };
+}
+
+export async function displayRoundOutcomeFromER(
+  program: Program<DiamondArena>,
+  roomId: BN,
+  players: Array<{ name: string; keypair: anchor.web3.Keypair }>,
+  roomPda: PublicKey
+) {
+  const room = await getRoomFromER(providerEphemeralRollup, program, roomPda);
+
+  console.log("\n╔════════════════════════════════════════════════════════╗");
+  console.log(`║ ROUND ${room.currentRound} SUMMARY`.padEnd(57) + "║");
+  console.log("╠════════════════════════════════════════════════════════╣");
+
+  const rows: Array<{
+    name: string;
+    pick: string;
+    lives: number;
+    status: string;
+  }> = [];
+
+  for (const p of players) {
+    const choicePda = getPlayerRoundChoicePda(
+      roomId,
+      p.keypair.publicKey,
+      program
+    );
+    const statePda = getPlayerStatePda(roomId, p.keypair.publicKey, program);
+
+    const choice = await getPlayerRoundChoiceFromER(
+      providerEphemeralRollup,
+      program,
+      choicePda
+    );
+
+    const state = await getPlayerStateFromER(
+      providerEphemeralRollup,
+      program,
+      statePda
+    );
+
+    rows.push({
+      name: p.name,
+      pick: choice?.pick == null ? "None" : String(choice.pick),
+      lives: state?.lives ?? -1,
+      status: getStatusName(state?.status ?? {}),
+    });
+  }
+
+  const maxLives = Math.max(...rows.map((r) => r.lives));
+  const winners = rows.filter((r) => r.lives === maxLives);
+
+  for (const row of rows) {
+    const lostLives = maxLives - row.lives;
+    const outcome = winners.some((w) => w.name === row.name)
+      ? "ROUND WINNER"
+      : `Lost ${lostLives} life/lives`;
+
+    console.log(
+      `║ ${row.name.padEnd(10)} Pick: ${row.pick.padEnd(4)} Lives: ${String(
+        row.lives
+      ).padEnd(2)} Status: ${row.status.padEnd(10)} ${outcome}`.slice(0, 56) +
+        "║"
+    );
+  }
+
+  console.log("╚════════════════════════════════════════════════════════╝\n");
 }
