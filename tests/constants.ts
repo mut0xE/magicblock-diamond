@@ -1,5 +1,6 @@
+import { AnchorProvider } from "@coral-xyz/anchor";
 import { ConnectionMagicRouter } from "@magicblock-labs/ephemeral-rollups-sdk";
-import { PublicKey, SystemProgram } from "@solana/web3.js";
+import { Connection, PublicKey, SystemProgram } from "@solana/web3.js";
 
 export const ROOM_SEED = Buffer.from("room");
 export const PLAYER_STATE_SEED = Buffer.from("player_state");
@@ -12,6 +13,10 @@ export const DEVNET_ASIA_VALIDATOR = new PublicKey(
   "MAS1Dt9qreoRMQ14YQuhg8UTZMMzDdKhmkZMECCzk57"
 );
 
-export const magicConnection = new ConnectionMagicRouter(
-  "https://devnet-router.magicblock.app"
+// export const magicConnection = new ConnectionMagicRouter(
+//   "https://devnet-router.magicblock.app"
+// );
+
+export const providerEphemeralRollup = new Connection(
+  process.env.EPHEMERAL_PROVIDER_ENDPOINT || "https://devnet-as.magicblock.app/"
 );

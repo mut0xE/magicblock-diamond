@@ -1,6 +1,7 @@
 import * as anchor from "@coral-xyz/anchor";
 import { BN, Program } from "@coral-xyz/anchor";
 import {
+  Connection,
   LAMPORTS_PER_SOL,
   PublicKey,
   SystemProgram,
@@ -10,7 +11,7 @@ import { randomBytes } from "crypto";
 import { expect } from "chai";
 import { DiamondArena } from "../target/types/diamond_arena";
 import fs from "fs";
-import { DEVNET_ASIA_VALIDATOR, magicConnection } from "./constants";
+import { DEVNET_ASIA_VALIDATOR, providerEphemeralRollup } from "./constants";
 // Load player from file
 export function loadPlayer(filePath: string): anchor.web3.Keypair {
   const data = JSON.parse(fs.readFileSync(filePath, "utf8"));
@@ -260,7 +261,7 @@ export async function startMatchViaMagicRouter(
     })
     .instruction();
 
-  const latestBlockhash = await magicConnection.getLatestBlockhash();
+  const latestBlockhash = await providerEphemeralRollup.getLatestBlockhash();
 
   // Build transaction
   const tx = new Transaction().add(startMatchIx);
@@ -268,11 +269,15 @@ export async function startMatchViaMagicRouter(
   tx.feePayer = signer.publicKey;
   tx.recentBlockhash = latestBlockhash.blockhash;
 
-  const signature = await magicConnection.sendTransaction(tx, [signer], {
-    skipPreflight: true,
-  });
+  const signature = await providerEphemeralRollup.sendTransaction(
+    tx,
+    [signer],
+    {
+      skipPreflight: true,
+    }
+  );
 
-  await magicConnection.confirmTransaction({
+  await providerEphemeralRollup.confirmTransaction({
     signature,
     ...latestBlockhash,
   });
@@ -531,4 +536,204 @@ export async function displayGameSummary(
   }
 
   console.log("╚════════════════════════════════════════════════════════╝\n");
+}
+
+/**
+ * Generic helper to deserialize ANY account from ER/fast tier
+ * Works for Room, PlayerState, PlayerRoundChoice, etc.
+ */
+export async function deserializeAccountFromER<T>(
+  erConnection: Connection,
+  program: anchor.Program,
+  accountName: string,
+  pda: PublicKey
+): Promise<T | null> {
+  try {
+    const accountInfo = await erConnection.getAccountInfo(pda);
+
+    if (!accountInfo) {
+      console.warn(`${accountName} not found on ER: ${pda.toBase58()}`);
+      return null;
+    }
+
+    return program.coder.accounts.decode(accountName, accountInfo.data) as T;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`Failed to deserialize ${accountName}: ${message}`);
+    throw error;
+  }
+}
+
+/**
+ *  Deserialize Room specifically
+ */
+export async function getRoomFromER(
+  erConnection: Connection,
+  program: anchor.Program<any>,
+  roomPda: PublicKey
+): Promise<any> {
+  return deserializeAccountFromER(erConnection, program, "room", roomPda);
+}
+
+/**
+ *  Deserialize PlayerState specifically
+ */
+export async function getPlayerStateFromER(
+  erConnection: Connection,
+  program: anchor.Program<any>,
+  playerStatePda: PublicKey
+): Promise<any> {
+  return deserializeAccountFromER(
+    erConnection,
+    program,
+    "playerState",
+    playerStatePda
+  );
+}
+
+/**
+ *  Deserialize PlayerRoundChoice specifically
+ */
+export async function getPlayerRoundChoiceFromER(
+  erConnection: Connection,
+  program: anchor.Program<any>,
+  choicePda: PublicKey
+): Promise<any> {
+  return deserializeAccountFromER(
+    erConnection,
+    program,
+    "playerRoundChoice",
+    choicePda
+  );
+}
+
+/**
+ * Batch deserialize multiple accounts from ER
+ */
+export async function deserializeMultipleFromER<T>(
+  erConnection: Connection,
+  program: anchor.Program<any>,
+  accounts: Array<{
+    name: string;
+    pda: PublicKey;
+  }>
+): Promise<T[]> {
+  const results = await Promise.all(
+    accounts.map((account) =>
+      deserializeAccountFromER(
+        erConnection,
+        program,
+        account.name,
+        account.pda
+      ).catch((error) => {
+        console.error(`Failed to deserialize ${account.name}:`, error.message);
+        return null;
+      })
+    )
+  );
+
+  console.log(`Batch deserialization complete\n`);
+  return results as T[];
+}
+
+/**
+ * Helper to get all player states from ER
+ */
+export async function getAllPlayerStatesFromER(
+  erConnection: Connection,
+  program: anchor.Program<any>,
+  playerStatePdas: Map<string, PublicKey> // player name -> PDA
+): Promise<Map<string, any>> {
+  const results = new Map<string, any>();
+
+  for (const [playerName, pda] of playerStatePdas) {
+    try {
+      const state = await getPlayerStateFromER(erConnection, program, pda);
+      if (state) {
+        results.set(playerName, state);
+        console.log(
+          `${playerName}: Lives=${state.lives}, Status=${JSON.stringify(
+            state.status
+          )}`
+        );
+      }
+    } catch (error) {
+      console.error(`Failed to fetch ${playerName}:`, error.message);
+    }
+  }
+
+  console.log("");
+  return results;
+}
+
+/**
+ * Pretty print account from ER
+ */
+export async function printAccountFromER(
+  erConnection: Connection,
+  program: anchor.Program<any>,
+  accountName: string,
+  pda: PublicKey,
+  title?: string
+): Promise<void> {
+  console.log(`\n╔════════════════════════════════════════╗`);
+  console.log(`║ ${(title || accountName.toUpperCase()).padEnd(40)}║`);
+  console.log(`╠════════════════════════════════════════╣`);
+
+  const account = await deserializeAccountFromER(
+    erConnection,
+    program,
+    accountName,
+    pda
+  );
+
+  if (!account) {
+    console.log("║ Account not found                      ║");
+  } else {
+    const json = JSON.stringify(account, null, 2);
+    const lines = json.split("\n");
+
+    for (const line of lines.slice(0, 15)) {
+      // Limit to first 15 lines
+      const truncated = line.substring(0, 38);
+      console.log(`║ ${truncated.padEnd(38)}║`);
+    }
+
+    if (lines.length > 15) {
+      console.log(`║ ... (${lines.length - 15} more lines)      ║`);
+    }
+  }
+
+  console.log(`╚════════════════════════════════════════╝\n`);
+}
+
+/**
+ * Quick snapshot: Get Room + all PlayerStates from ER
+ */
+export async function getGameStateFromER(
+  erConnection: Connection,
+  program: anchor.Program<any>,
+  roomPda: PublicKey,
+  playerStatePdas: PublicKey[]
+): Promise<{
+  room: any;
+  playerStates: any[];
+}> {
+  console.log(`\nTaking game state snapshot from ER...\n`);
+
+  // Get room
+  const room = await getRoomFromER(erConnection, program, roomPda);
+
+  // Get all player states
+  const playerStates = await Promise.all(
+    playerStatePdas.map((pda) =>
+      getPlayerStateFromER(erConnection, program, pda)
+    )
+  );
+
+  console.log(`Snapshot complete\n`);
+  console.log(`Room: ${JSON.stringify(room, null, 2)}`);
+  console.log(`Player States: ${JSON.stringify(playerStates, null, 2)}\n`);
+
+  return { room, playerStates };
 }

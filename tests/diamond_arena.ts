@@ -16,6 +16,7 @@ import {
   finalizeRound,
   getPda,
   getPlayerLives,
+  getRoomFromER,
   getRoomId,
   joinRoom,
   loadPlayer,
@@ -26,7 +27,7 @@ import {
   submitPick,
   wait,
 } from "./helper";
-import { DEVNET_ASIA_VALIDATOR } from "./constants";
+import { DEVNET_ASIA_VALIDATOR, providerEphemeralRollup } from "./constants";
 const TREASURY = new PublicKey("treynHHxg2ftG3Hzn5dypVZX593Yss6uU54puVE614D");
 export const SYSTEM_PROGRAM = SystemProgram.programId;
 
@@ -248,6 +249,7 @@ describe("diamond_arena", () => {
 
     //   // Verify match is active
     //   const roomAccount = await program.account.room.fetch(pdas.room);
+    //   console.log("room", roomAccount);
     //   expect(roomAccount.status.active).to.not.equal(undefined);
     //   expect(roomAccount.currentRound).to.equal(1);
     //   expect(roomAccount.commitDeadline.toNumber()).to.be.greaterThan(0);
@@ -267,8 +269,16 @@ describe("diamond_arena", () => {
       );
 
       logTransactionResult("Start match tx", sig);
-      const room = await program.account.room.fetch(pdas.room);
-      console.log("room after start_match:", room);
+      const roomViaL1 = await program.account.room.fetch(pdas.room);
+      console.log("room via normal provider:", roomViaL1);
+
+      //  ER connection, deserialize
+      const roomEr = await getRoomFromER(
+        providerEphemeralRollup,
+        program,
+        pdas.room
+      );
+      console.log("Deserialized via ER connection:", roomEr);
     });
 
     // it("should do round 1 (picks: 20, 20, 40)", async () => {
