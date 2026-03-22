@@ -1,7 +1,7 @@
 use crate::{
-    constants::{MAX_NUMBER, PLAYER_ROUND_CHOICE_SEED, PLAYER_STATE_SEED, ROOM_SEED},
+    constants::{MAX_NUMBER, PLAYER_ROUND_CHOICE_SEED, ROOM_SEED},
     error::DiamondError,
-    state::{PlayerRoundChoice, PlayerState, PlayerStatus, Room, RoomStatus},
+    state::{PlayerRoundChoice, Room, RoomStatus},
 };
 use anchor_lang::prelude::*;
 
@@ -12,21 +12,19 @@ pub struct SubmitPick<'info> {
     pub player: Signer<'info>,
 
     #[account(
-            mut,
             seeds = [ROOM_SEED, &room_id.to_le_bytes()],
             bump = room.bump,
             constraint = room.status == RoomStatus::Active @ DiamondError::RoomNotActive,
         )]
     pub room: Account<'info, Room>,
 
-    #[account(
-            mut,
-            seeds = [PLAYER_STATE_SEED, &room_id.to_le_bytes(), player.key().as_ref()],
-            bump = player_state.bump,
-            constraint = player_state.status == PlayerStatus::Active @ DiamondError::PlayerNotActive,
-        )]
-    pub player_state: Account<'info, PlayerState>,
-
+    // #[account(
+    //         mut,
+    //         seeds = [PLAYER_STATE_SEED, &room_id.to_le_bytes(), player.key().as_ref()],
+    //         bump = player_state.bump,
+    //         constraint = player_state.status == PlayerStatus::Active @ DiamondError::PlayerNotActive,
+    //     )]
+    // pub player_state: Account<'info, PlayerState>,
     #[account(
           mut,
            seeds = [
@@ -37,8 +35,6 @@ pub struct SubmitPick<'info> {
            bump
        )]
     pub player_round_choice: Account<'info, PlayerRoundChoice>,
-
-    pub system_program: Program<'info, System>,
 }
 impl<'info> SubmitPick<'info> {
     pub fn handler(&mut self, _room_id: u64, round: u8, pick: u8) -> Result<()> {

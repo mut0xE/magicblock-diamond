@@ -25,6 +25,7 @@ import {
   getPlayerLives,
   getPlayerRoundChoiceFromER,
   getPlayerRoundChoicePda,
+  getPlayerStateFromER,
   getRoomFromER,
   getRoomId,
   joinRoom,
@@ -46,16 +47,6 @@ import {
 } from "@magicblock-labs/ephemeral-rollups-sdk";
 const TREASURY = new PublicKey("treynHHxg2ftG3Hzn5dypVZX593Yss6uU54puVE614D");
 export const SYSTEM_PROGRAM = SystemProgram.programId;
-
-const TEE_VALIDATOR = new PublicKey(
-  "FnE6VJT5QNZdedZPnCoLsARgBwoE6DeJNjBs2H1gySXA"
-);
-
-const PERMISSION_PROGRAM_ID = new PublicKey(
-  "ACLseoPoyC3cBqoUtkbjZ4aDrkurZW86v19pXz2XQnp1"
-);
-
-const teeUrl = "https://tee.magicblock.app";
 
 describe("diamond_arena", () => {
   const provider = anchor.AnchorProvider.env();
@@ -82,7 +73,13 @@ describe("diamond_arena", () => {
 
     // Load players from files
     player1 = admin.payer;
+    player2 = loadPlayer(
+      "/Users/mut0xE/Downloads/keys/us68r6awy9CVvUkJ58jEY1Bxp4sjpuyQZZys41hNH9S.json"
+    );
 
+    player3 = loadPlayer(
+      "/Users/mut0xE/Downloads/keys/b2M6wZCujvcaKms27aLnsfNhhM5LLdygutwqJb9Uzn2.json"
+    );
     console.log(`Player1 (Admin): ${player1.publicKey}`);
     console.log(`Player2: ${player2.publicKey}`);
     console.log(`Player3: ${player3.publicKey}`);
@@ -408,81 +405,209 @@ describe("diamond_arena", () => {
     //   console.log("Deserialized via ER connection:", roomEr);
     // });
 
-    it("create permission + delegate choice accounts", async () => {
-      const players = [player1, player2, player3];
+    it("should delegate all player choice PDAs", async () => {
+      const choice1 = getPlayerRoundChoicePda(
+        roomId,
+        player1.publicKey,
+        program
+      );
+      const choice2 = getPlayerRoundChoicePda(
+        roomId,
+        player2.publicKey,
+        program
+      );
+      const choice3 = getPlayerRoundChoicePda(
+        roomId,
+        player3.publicKey,
+        program
+      );
 
-      for (const player of players) {
-        const choicePda = getPlayerRoundChoicePda(
-          roomId,
-          player.publicKey,
-          program
-        );
-        const permissionPda = permissionPdaFromAccount(choicePda);
+      const tx1 = await delegatePlayerRoundChoice(
+        program,
+        admin.payer,
+        roomId,
+        player1.publicKey,
+        choice1
+      );
+      logTransactionResult("Player1 choice delegated", tx1);
 
-        const members: Member[] = [
-          {
-            flags: AUTHORITY_FLAG | TX_LOGS_FLAG,
-            pubkey: player.publicKey,
-          },
-        ];
+      const tx2 = await delegatePlayerRoundChoice(
+        program,
+        admin.payer,
+        roomId,
+        player2.publicKey,
+        choice2
+      );
+      logTransactionResult("Player2 choice delegated", tx2);
 
-        const createPermissionIx = await program.methods
-          .createPermission(
-            { playerRoundChoice: { roomId, player: player.publicKey } },
-            members
-          )
-          .accountsPartial({
-            payer: player.publicKey,
-            permissionedAccount: choicePda,
-            permission: permissionPda,
-            systemProgram: SystemProgram.programId,
-          })
-          .instruction();
-
-        const delegatePermissionIx = createDelegatePermissionInstruction({
-          payer: player.publicKey,
-          validator: TEE_VALIDATOR,
-          permissionedAccount: [choicePda, false],
-          authority: [player.publicKey, true],
-        });
-
-        const delegateChoiceIx = await program.methods
-          .delegatePlayerChoice(roomId, player.publicKey)
-          .accounts({
-            payer: player.publicKey,
-            validator: TEE_VALIDATOR,
-            //@ts-ignore
-            playerRoundChoice: choicePda,
-          })
-          .instruction();
-
-        const tx = new Transaction().add(
-          createPermissionIx,
-          delegatePermissionIx,
-          delegateChoiceIx
-        );
-        tx.feePayer = player.publicKey;
-
-        const sig = await sendAndConfirmTransaction(
-          provider.connection,
-          tx,
-          [player],
-          {
-            skipPreflight: true,
-            commitment: "confirmed",
-          }
-        );
-
-        logTransactionResult(
-          `Choice permission + delegation for ${player.publicKey}`,
-          sig
-        );
-
-        await waitUntilPermissionActive(teeUrl, choicePda);
-      }
+      const tx3 = await delegatePlayerRoundChoice(
+        program,
+        admin.payer,
+        roomId,
+        player3.publicKey,
+        choice3
+      );
+      logTransactionResult("Player3 choice delegated", tx3);
     });
 
-    it("should submit picks for round 1 via ER", async () => {
+    // it("create permission + delegate choice accounts", async () => {
+    //   const players = [player1, player2, player3];
+
+    //   for (const player of players) {
+    //     const choicePda = getPlayerRoundChoicePda(
+    //       roomId,
+    //       player.publicKey,
+    //       program
+    //     );
+    //     const permissionPda = permissionPdaFromAccount(choicePda);
+
+    //     const members: Member[] = [
+    //       {
+    //         flags: AUTHORITY_FLAG | TX_LOGS_FLAG,
+    //         pubkey: player.publicKey,
+    //       },
+    //     ];
+
+    //     const createPermissionIx = await program.methods
+    //       .createPermission(
+    //         { playerRoundChoice: { roomId, player: player.publicKey } },
+    //         members
+    //       )
+    //       .accountsPartial({
+    //         payer: player.publicKey,
+    //         permissionedAccount: choicePda,
+    //         permission: permissionPda,
+    //         systemProgram: SystemProgram.programId,
+    //       })
+    //       .instruction();
+
+    //     const delegatePermissionIx = createDelegatePermissionInstruction({
+    //       payer: player.publicKey,
+    //       validator: TEE_VALIDATOR,
+    //       permissionedAccount: [choicePda, false],
+    //       authority: [player.publicKey, true],
+    //     });
+
+    //     const delegateChoiceIx = await program.methods
+    //       .delegatePlayerChoice(roomId, player.publicKey)
+    //       .accounts({
+    //         payer: player.publicKey,
+    //         validator: TEE_VALIDATOR,
+    //         //@ts-ignore
+    //         playerRoundChoice: choicePda,
+    //       })
+    //       .instruction();
+
+    //     const tx = new Transaction().add(
+    //       createPermissionIx,
+    //       delegatePermissionIx,
+    //       delegateChoiceIx
+    //     );
+    //     tx.feePayer = player.publicKey;
+
+    //     const sig = await sendAndConfirmTransaction(
+    //       provider.connection,
+    //       tx,
+    //       [player],
+    //       {
+    //         skipPreflight: true,
+    //         commitment: "confirmed",
+    //       }
+    //     );
+
+    //     logTransactionResult(
+    //       `Choice permission + delegation for ${player.publicKey}`,
+    //       sig
+    //     );
+
+    //     await waitUntilPermissionActive(teeUrl, choicePda);
+    //   }
+    // });
+
+    // it("should submit picks for round 1 via ER", async () => {
+    //   const tx1 = await submitPickViaMagicRouter(
+    //     program,
+    //     player1,
+    //     roomId,
+    //     1,
+    //     20
+    //   );
+    //   logTransactionResult("Player1 submitted pick 20", tx1);
+
+    //   const tx2 = await submitPickViaMagicRouter(
+    //     program,
+    //     player2,
+    //     roomId,
+    //     1,
+    //     20
+    //   );
+    //   logTransactionResult("Player2 submitted pick 20", tx2);
+
+    //   const tx3 = await submitPickViaMagicRouter(
+    //     program,
+    //     player3,
+    //     roomId,
+    //     1,
+    //     40
+    //   );
+    //   logTransactionResult("Player3 submitted pick 40", tx3);
+
+    //   const choice1 = await getPlayerRoundChoiceFromER(
+    //     providerEphemeralRollup,
+    //     program,
+    //     getPlayerRoundChoicePda(roomId, player1.publicKey, program)
+    //   );
+    //   const choice2 = await getPlayerRoundChoiceFromER(
+    //     providerEphemeralRollup,
+    //     program,
+    //     getPlayerRoundChoicePda(roomId, player2.publicKey, program)
+    //   );
+    //   const choice3 = await getPlayerRoundChoiceFromER(
+    //     providerEphemeralRollup,
+    //     program,
+    //     getPlayerRoundChoicePda(roomId, player3.publicKey, program)
+    //   );
+
+    //   console.log("Player1 choice on ER:", choice1);
+    //   console.log("Player2 choice on ER:", choice2);
+    //   console.log("Player3 choice on ER:", choice3);
+    // });
+
+    // it("should finalize round via TEE/ER", async () => {
+    //   await wait(20000);
+
+    //   const sig = await finalizeRoundViaMagicRouter(
+    //     program,
+    //     admin.payer,
+    //     roomId,
+    //     [player1, player2, player3],
+    //     1,
+    //     pdas
+    //   );
+
+    //   logTransactionResult("Finalize round tx", sig);
+
+    //   const roomEr = await getRoomFromER(
+    //     providerEphemeralRollup,
+    //     program,
+    //     pdas.room
+    //   );
+    //   console.log("Room on ER after finalize:", roomEr);
+    //   await displayRoundOutcomeFromER(
+    //     program,
+    //     roomId,
+    //     [
+    //       { name: "Player1", keypair: player1 },
+    //       { name: "Player2", keypair: player2 },
+    //       { name: "Player3", keypair: player3 },
+    //     ],
+    //     pdas.room
+    //   );
+    // });
+
+    it("should do round 1 (picks: 20, 20, 40)", async () => {
+      console.log("--- Round 1: P1=20, P2=20, P3=40 ---");
+
       const tx1 = await submitPickViaMagicRouter(
         program,
         player1,
@@ -490,7 +615,7 @@ describe("diamond_arena", () => {
         1,
         20
       );
-      logTransactionResult("Player1 submitted pick 20", tx1);
+      logTransactionResult("P1 submitted pick 20", tx1);
 
       const tx2 = await submitPickViaMagicRouter(
         program,
@@ -499,7 +624,7 @@ describe("diamond_arena", () => {
         1,
         20
       );
-      logTransactionResult("Player2 submitted pick 20", tx2);
+      logTransactionResult("P2 submitted pick 20", tx2);
 
       const tx3 = await submitPickViaMagicRouter(
         program,
@@ -508,7 +633,7 @@ describe("diamond_arena", () => {
         1,
         40
       );
-      logTransactionResult("Player3 submitted pick 40", tx3);
+      logTransactionResult("P3 submitted pick 40", tx3);
 
       const choice1 = await getPlayerRoundChoiceFromER(
         providerEphemeralRollup,
@@ -529,12 +654,10 @@ describe("diamond_arena", () => {
       console.log("Player1 choice on ER:", choice1);
       console.log("Player2 choice on ER:", choice2);
       console.log("Player3 choice on ER:", choice3);
-    });
 
-    it("should finalize round via TEE/ER", async () => {
       await wait(20000);
 
-      const sig = await finalizeRoundViaMagicRouter(
+      const finalTx = await finalizeRoundViaMagicRouter(
         program,
         admin.payer,
         roomId,
@@ -542,15 +665,8 @@ describe("diamond_arena", () => {
         1,
         pdas
       );
+      logTransactionResult("Finalize Round 1", finalTx);
 
-      logTransactionResult("Finalize round tx", sig);
-
-      const roomEr = await getRoomFromER(
-        providerEphemeralRollup,
-        program,
-        pdas.room
-      );
-      console.log("Room on ER after finalize:", roomEr);
       await displayRoundOutcomeFromER(
         program,
         roomId,
@@ -561,6 +677,289 @@ describe("diamond_arena", () => {
         ],
         pdas.room
       );
+
+      const p1State = await getPlayerStateFromER(
+        providerEphemeralRollup,
+        program,
+        pdas.playerStates[player1.publicKey.toBase58()]
+      );
+      const p2State = await getPlayerStateFromER(
+        providerEphemeralRollup,
+        program,
+        pdas.playerStates[player2.publicKey.toBase58()]
+      );
+      const p3State = await getPlayerStateFromER(
+        providerEphemeralRollup,
+        program,
+        pdas.playerStates[player3.publicKey.toBase58()]
+      );
+
+      const p1Lives = p1State.lives;
+      const p2Lives = p2State.lives;
+      const p3Lives = p3State.lives;
+
+      expect(p1Lives).to.equal(3);
+      expect(p2Lives).to.equal(1);
+      expect(p3Lives).to.equal(2);
+    });
+
+    it("should do round 2 (picks: 50, 50, 30)", async () => {
+      console.log("--- Round 2: P1=50, P2=50, P3=30 ---");
+
+      const tx1 = await submitPickViaMagicRouter(
+        program,
+        player1,
+        roomId,
+        2,
+        50
+      );
+      logTransactionResult("P1 submitted pick 50", tx1);
+
+      const tx2 = await submitPickViaMagicRouter(
+        program,
+        player2,
+        roomId,
+        2,
+        50
+      );
+      logTransactionResult("P2 submitted pick 50", tx2);
+
+      const tx3 = await submitPickViaMagicRouter(
+        program,
+        player3,
+        roomId,
+        2,
+        30
+      );
+      logTransactionResult("P3 submitted pick 30", tx3);
+
+      await wait(20000);
+
+      const finalTx = await finalizeRoundViaMagicRouter(
+        program,
+        admin.payer,
+        roomId,
+        [player1, player2, player3],
+        2,
+        pdas
+      );
+      logTransactionResult("Finalize Round 2", finalTx);
+
+      await displayRoundOutcomeFromER(
+        program,
+        roomId,
+        [
+          { name: "Player1", keypair: player1 },
+          { name: "Player2", keypair: player2 },
+          { name: "Player3", keypair: player3 },
+        ],
+        pdas.room
+      );
+
+      const p1State = await getPlayerStateFromER(
+        providerEphemeralRollup,
+        program,
+        pdas.playerStates[player1.publicKey.toBase58()]
+      );
+      const p2State = await getPlayerStateFromER(
+        providerEphemeralRollup,
+        program,
+        pdas.playerStates[player2.publicKey.toBase58()]
+      );
+      const p3State = await getPlayerStateFromER(
+        providerEphemeralRollup,
+        program,
+        pdas.playerStates[player3.publicKey.toBase58()]
+      );
+
+      const p1Lives = p1State.lives;
+      const p2Lives = p2State.lives;
+      const p3Lives = p3State.lives;
+      printState(2, [
+        { name: "Player1", lives: p1Lives },
+        { name: "Player2", lives: p2Lives },
+        { name: "Player3", lives: p3Lives },
+      ]);
+
+      expect(p1Lives).to.equal(1);
+      expect(p2Lives).to.equal(0);
+      expect(p3Lives).to.equal(2);
+    });
+
+    it("should do round 3 (picks: 25, 45) - P2 out", async () => {
+      console.log("--- Round 3: P1=25, P3=45 ---");
+
+      const tx1 = await submitPickViaMagicRouter(
+        program,
+        player1,
+        roomId,
+        3,
+        25
+      );
+      logTransactionResult("P1 submitted pick 25", tx1);
+
+      const tx2 = await submitPickViaMagicRouter(
+        program,
+        player3,
+        roomId,
+        3,
+        45
+      );
+      logTransactionResult("P3 submitted pick 45", tx2);
+
+      await wait(20000);
+
+      const finalTx = await finalizeRoundViaMagicRouter(
+        program,
+        admin.payer,
+        roomId,
+        [player1, player3],
+        3,
+        pdas
+      );
+      logTransactionResult("Finalize Round 3", finalTx);
+
+      await displayRoundOutcomeFromER(
+        program,
+        roomId,
+        [
+          { name: "Player1", keypair: player1 },
+          { name: "Player2", keypair: player2 },
+          { name: "Player3", keypair: player3 },
+        ],
+        pdas.room
+      );
+
+      const p1State = await getPlayerStateFromER(
+        providerEphemeralRollup,
+        program,
+        pdas.playerStates[player1.publicKey.toBase58()]
+      );
+      const p3State = await getPlayerStateFromER(
+        providerEphemeralRollup,
+        program,
+        pdas.playerStates[player3.publicKey.toBase58()]
+      );
+
+      const p1Lives = p1State.lives;
+      const p3Lives = p3State.lives;
+
+      printState(3, [
+        { name: "Player1", lives: p1Lives },
+        { name: "Player3", lives: p3Lives },
+      ]);
+
+      expect(p1Lives).to.equal(1);
+      expect(p3Lives).to.equal(1);
+    });
+
+    it("should do round 4 (picks: 20, 60) - final round", async () => {
+      console.log("--- Round 4: P1=20, P3=60 ---");
+
+      const tx1 = await submitPickViaMagicRouter(
+        program,
+        player1,
+        roomId,
+        4,
+        20
+      );
+      logTransactionResult("P1 submitted pick 20", tx1);
+
+      const tx2 = await submitPickViaMagicRouter(
+        program,
+        player3,
+        roomId,
+        4,
+        60
+      );
+      logTransactionResult("P3 submitted pick 60", tx2);
+
+      await wait(20000);
+
+      const finalTx = await finalizeRoundViaMagicRouter(
+        program,
+        admin.payer,
+        roomId,
+        [player1, player3],
+        4,
+        pdas
+      );
+      logTransactionResult("Finalize Round 4", finalTx);
+
+      await displayRoundOutcomeFromER(
+        program,
+        roomId,
+        [
+          { name: "Player1", keypair: player1 },
+          { name: "Player2", keypair: player2 },
+          { name: "Player3", keypair: player3 },
+        ],
+        pdas.room
+      );
+
+      const p1State = await getPlayerStateFromER(
+        providerEphemeralRollup,
+        program,
+        pdas.playerStates[player1.publicKey.toBase58()]
+      );
+      const p3State = await getPlayerStateFromER(
+        providerEphemeralRollup,
+        program,
+        pdas.playerStates[player3.publicKey.toBase58()]
+      );
+
+      const p1Lives = p1State.lives;
+      const p3Lives = p3State.lives;
+
+      printState(4, [
+        { name: "Player1", lives: p1Lives },
+        { name: "Player3", lives: p3Lives },
+      ]);
+
+      expect(p1Lives).to.equal(1);
+      expect(p3Lives).to.equal(0);
+    });
+
+    it("should show final winner", async () => {
+      const roomEr = await getRoomFromER(
+        providerEphemeralRollup,
+        program,
+        pdas.room
+      );
+      console.log("Final room state:", roomEr);
+
+      const p1State = await getPlayerStateFromER(
+        providerEphemeralRollup,
+        program,
+        pdas.playerStates[player1.publicKey.toBase58()]
+      );
+      const p2State = await getPlayerStateFromER(
+        providerEphemeralRollup,
+        program,
+        pdas.playerStates[player2.publicKey.toBase58()]
+      );
+      const p3State = await getPlayerStateFromER(
+        providerEphemeralRollup,
+        program,
+        pdas.playerStates[player3.publicKey.toBase58()]
+      );
+
+      const p1Lives = p1State.lives;
+      const p2Lives = p2State.lives;
+      const p3Lives = p3State.lives;
+
+      console.log("Final lives:");
+      console.log("Player1:", p1Lives);
+      console.log("Player2:", p2Lives);
+      console.log("Player3:", p3Lives);
+
+      expect(roomEr.currentRound).to.equal(4);
+      expect(roomEr.status.finished).to.not.equal(undefined);
+      expect(roomEr.winner.toBase58()).to.equal(player1.publicKey.toBase58());
+
+      expect(p1Lives).to.equal(1);
+      expect(p2Lives).to.equal(0);
+      expect(p3Lives).to.equal(0);
     });
 
     // it("should delegate all player choice PDAs in one tx", async () => {

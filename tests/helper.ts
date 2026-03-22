@@ -166,7 +166,6 @@ export async function finalizeRoundViaMagicRouter(
       player.publicKey,
       program
     );
-    const permissionPda = permissionPdaFromAccount(choicePda);
 
     remainingAccounts.push({
       pubkey: playerStatePda,
@@ -179,12 +178,6 @@ export async function finalizeRoundViaMagicRouter(
       isWritable: true,
       isSigner: false,
     });
-
-    remainingAccounts.push({
-      pubkey: permissionPda,
-      isWritable: true,
-      isSigner: false,
-    });
   }
 
   const ix = await program.methods
@@ -193,9 +186,6 @@ export async function finalizeRoundViaMagicRouter(
       finalizer: signer.publicKey,
       //@ts-ignore
       room: pdas.room,
-      permissionProgram: new PublicKey(
-        "ACLseoPoyC3cBqoUtkbjZ4aDrkurZW86v19pXz2XQnp1"
-      ),
     })
     .remainingAccounts(remainingAccounts)
     .instruction();

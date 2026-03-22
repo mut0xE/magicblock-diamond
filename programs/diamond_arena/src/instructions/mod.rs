@@ -1,4 +1,3 @@
-pub mod create_permission;
 pub mod create_room;
 pub mod delegate_player_choice;
 pub mod delegate_player_state;
@@ -10,7 +9,6 @@ pub mod settle_match;
 pub mod start_match;
 pub mod submit_pick;
 
-pub use create_permission::*;
 pub use create_room::*;
 pub use delegate_player_choice::*;
 pub use delegate_player_state::*;

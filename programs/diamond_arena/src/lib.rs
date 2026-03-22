@@ -77,12 +77,4 @@ pub mod diamond_arena {
     ) -> Result<()> {
         DelegatePlayerRoundChoice::handler(ctx, room_id, player)
     }
-
-    pub fn create_permission(
-        ctx: Context<CreatePermission>,
-        account_type: AccountType,
-        members: Option<Vec<Member>>,
-    ) -> Result<()> {
-        ctx.accounts.handler(account_type, members)
-    }
 }
