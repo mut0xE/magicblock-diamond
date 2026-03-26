@@ -7,7 +7,7 @@ pub const CONFIG_SEED: &[u8] = b"config";
 
 pub const DEFAULT_LIVES: u8 = 3;
 pub const MIN_PLAYERS: u8 = 2;
-pub const MAX_PLAYERS: u8 = 5;
+pub const MAX_PLAYERS: u8 = 10;
 
 pub const MAX_NUMBER: u8 = 100;
 

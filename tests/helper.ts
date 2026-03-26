@@ -360,11 +360,11 @@ export async function delegatePlayerRoundChoice(
   playerRoundChoicePda: PublicKey
 ): Promise<string> {
   return await program.methods
-    .delegatePlayerChoice(roomId, player)
+    .delegateInput({ playerChoice: { roomId, player: player } })
     .accounts({
       payer: payer.publicKey,
+      pda: playerRoundChoicePda,
       //@ts-ignore
-      playerRoundChoice: playerRoundChoicePda,
       validator: DEVNET_ASIA_VALIDATOR,
     })
     .remainingAccounts([
@@ -529,11 +529,11 @@ export async function delegatePlayerStates(
   playerStatePda: PublicKey
 ): Promise<string> {
   const tx = await program.methods
-    .delegatePlayerState(roomId, player)
+    .delegateInput({ playerState: { roomId, player: player } })
     .accounts({
       payer: payer.publicKey,
+      pda: playerStatePda,
       //@ts-ignore
-      playerState: playerStatePda,
       validator: DEVNET_ASIA_VALIDATOR,
     })
     .remainingAccounts([

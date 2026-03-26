@@ -56,25 +56,16 @@ pub mod diamond_arena {
         ctx.accounts.handler(room_id)
     }
 
-    pub fn delegate_room(ctx: Context<DelegateRoom>, room_id: u64) -> Result<()> {
-        msg!("Delegating room {} to ER validator", room_id);
-        DelegateRoom::handler(ctx, room_id)
-    }
+    // pub fn delegate_room(ctx: Context<DelegateInput>, input: DelegateTarget) -> Result<()> {
+    //     delegate(ctx, input)
+    // }
 
-    pub fn delegate_player_state(
-        ctx: Context<DelegatePlayerState>,
-        room_id: u64,
-        player: Pubkey,
-    ) -> Result<()> {
-        DelegatePlayerState::handler(ctx, room_id, player)
-    }
+    // pub fn delegate_player_state(ctx: Context<DelegateInput>, input: DelegateTarget) -> Result<()> {
+    //     delegate(ctx, input)
+    // }
 
-    pub fn delegate_player_choice(
-        ctx: Context<DelegatePlayerRoundChoice>,
-        room_id: u64,
-        player: Pubkey,
-    ) -> Result<()> {
-        DelegatePlayerRoundChoice::handler(ctx, room_id, player)
+    pub fn delegate_input(ctx: Context<DelegateInput>, input: DelegateTarget) -> Result<()> {
+        delegate(ctx, input)
     }
 
     pub fn commit<'info>(

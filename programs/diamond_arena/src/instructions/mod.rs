@@ -1,8 +1,6 @@
 pub mod commit;
 pub mod create_room;
-pub mod delegate_player_choice;
-pub mod delegate_player_state;
-pub mod delegate_room;
+pub mod delegate_pda;
 pub mod finalize_round;
 pub mod initialize_config;
 pub mod join_room;
@@ -13,9 +11,7 @@ pub mod undelegate;
 
 pub use commit::*;
 pub use create_room::*;
-pub use delegate_player_choice::*;
-pub use delegate_player_state::*;
-pub use delegate_room::*;
+pub use delegate_pda::*;
 pub use finalize_round::*;
 pub use initialize_config::*;
 pub use join_room::*;

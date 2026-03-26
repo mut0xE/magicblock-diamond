@@ -72,10 +72,13 @@ describe("diamond_arena", () => {
 
     // Load players from files
     player1 = admin.payer;
-    player2 = loadPlayer("");
+    player2 = loadPlayer(
+      "/Users/mut0xE/Downloads/keys/us68r6awy9CVvUkJ58jEY1Bxp4sjpuyQZZys41hNH9S.json"
+    );
 
-    player3 = loadPlayer("");
-
+    player3 = loadPlayer(
+      "/Users/mut0xE/Downloads/keys/b2M6wZCujvcaKms27aLnsfNhhM5LLdygutwqJb9Uzn2.json"
+    );
     allPlayers = [
       { name: "Player1", keypair: player1, pick: 0 },
       { name: "Player2", keypair: player2, pick: 0 },
@@ -163,11 +166,11 @@ describe("diamond_arena", () => {
     it("delegate the room PDA to ER", async () => {
       const start = Date.now();
       const tx = await program.methods
-        .delegateRoom(roomId)
+        .delegateInput({ room: { roomId } })
         .accounts({
           payer: player1.publicKey,
+          pda: pdas.room,
           //@ts-ignore
-          room: pdas.room,
           validator: DEVNET_ASIA_VALIDATOR,
         })
         .remainingAccounts([
