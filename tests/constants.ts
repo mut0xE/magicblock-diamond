@@ -1,6 +1,5 @@
-import { AnchorProvider } from "@coral-xyz/anchor";
-import { ConnectionMagicRouter } from "@magicblock-labs/ephemeral-rollups-sdk";
-import { Connection, PublicKey, SystemProgram } from "@solana/web3.js";
+import { PublicKey, SystemProgram } from "@solana/web3.js";
+import * as anchor from "@coral-xyz/anchor";
 
 export const ROOM_SEED = Buffer.from("room");
 export const PLAYER_STATE_SEED = Buffer.from("player_state");
@@ -17,10 +16,6 @@ export const DEVNET_ASIA_VALIDATOR = new PublicKey(
 //   "https://devnet-router.magicblock.app"
 // );
 
-export const providerEphemeralRollup = new Connection(
-  process.env.EPHEMERAL_PROVIDER_ENDPOINT || "https://devnet-as.magicblock.app/"
-);
-
 export const TEE_VALIDATOR = new PublicKey(
   "FnE6VJT5QNZdedZPnCoLsARgBwoE6DeJNjBs2H1gySXA"
 );
@@ -28,3 +23,15 @@ export const TEE_VALIDATOR = new PublicKey(
 // export const PERMISSION_PROGRAM_ID = new PublicKey(
 //   "ACLseoPoyC3cBqoUtkbjZ4aDrkurZW86v19pXz2XQnp1"
 // );
+
+export const erProvider = new anchor.AnchorProvider(
+  new anchor.web3.Connection(
+    process.env.EPHEMERAL_PROVIDER_ENDPOINT ||
+      "https://devnet-as.magicblock.app/",
+    {
+      wsEndpoint:
+        process.env.EPHEMERAL_WS_ENDPOINT || "wss://devnet-as.magicblock.app/",
+    }
+  ),
+  anchor.Wallet.local()
+);

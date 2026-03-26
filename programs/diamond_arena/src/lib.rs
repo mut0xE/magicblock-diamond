@@ -7,11 +7,10 @@ mod error;
 mod helper;
 mod instructions;
 mod state;
-use ephemeral_rollups_sdk::access_control::structs::Member;
 use instructions::*;
 
-#[program]
 #[ephemeral]
+#[program]
 pub mod diamond_arena {
 
     use super::*;
@@ -76,5 +75,19 @@ pub mod diamond_arena {
         player: Pubkey,
     ) -> Result<()> {
         DelegatePlayerRoundChoice::handler(ctx, room_id, player)
+    }
+
+    pub fn commit<'info>(
+        ctx: Context<'_, '_, '_, 'info, CommitAndUndelegate<'info>>,
+        room_id: u64,
+    ) -> Result<()> {
+        commit_handler(ctx, room_id)
+    }
+
+    pub fn undelegate<'info>(
+        ctx: Context<'_, '_, '_, 'info, Undelegate<'info>>,
+        room_id: u64,
+    ) -> Result<()> {
+        undelegate_handler(ctx, room_id)
     }
 }

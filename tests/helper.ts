@@ -11,8 +11,22 @@ import { randomBytes } from "crypto";
 import { expect } from "chai";
 import { DiamondArena } from "../target/types/diamond_arena";
 import fs from "fs";
-import { DEVNET_ASIA_VALIDATOR, providerEphemeralRollup } from "./constants";
+import { DEVNET_ASIA_VALIDATOR, erProvider } from "./constants";
 import { permissionPdaFromAccount } from "@magicblock-labs/ephemeral-rollups-sdk";
+
+export type Layer = "L1" | "ER";
+
+const LAYER_LABEL: Record<Layer, string> = {
+  L1: "SOLANA",
+  ER: "ER",
+};
+
+export type RoundPlayer = {
+  name: string;
+  keypair: anchor.web3.Keypair;
+  pick: number;
+};
+
 // Load player from file
 export function loadPlayer(filePath: string): anchor.web3.Keypair {
   const data = JSON.parse(fs.readFileSync(filePath, "utf8"));
@@ -40,9 +54,9 @@ export function getRoomId(): anchor.BN {
   return new anchor.BN(randomBytes(8));
 }
 
-export const logTransactionResult = (label: string, txSignature: string) => {
-  console.log(`\n${label}:`);
-  console.log(`   Txn signature: ${txSignature}`);
+export const logTx = (label: string, sig: string, layer: Layer = "L1") => {
+  console.log(`\n   ${LAYER_LABEL[layer]}  ${label}`);
+  console.log(`   sig: ${sig}`);
 };
 
 export async function expectAnchorError(
@@ -148,6 +162,136 @@ export function buildAllPdas(
   return { room, vault, playerStates, playerChoices };
 }
 
+export function printState(
+  label: number | string,
+  players: Array<{ name: string; lives: number }>
+) {
+  const title =
+    typeof label === "number" ? `⚡ ER  ·  after round ${label}` : `${label}`;
+  const width = 36;
+  const bar = "─".repeat(width);
+
+  console.log(`\n  ┌${bar}┐`);
+  console.log(`  │  ${title.padEnd(width - 2)}│`);
+  console.log(`  ├${bar}┤`);
+
+  for (const p of players) {
+    const hearts = "♥".repeat(p.lives) + "♡".repeat(Math.max(0, 3 - p.lives));
+    const status = p.lives === 0 ? "ELIM" : p.lives >= 3 ? " WIN" : "  ok";
+    const line = `${p.name.padEnd(10)} ${hearts.padEnd(5)}  ${
+      p.lives
+    } hp  ${status}`;
+    console.log(`  │  ${line.padEnd(width - 2)}│`);
+  }
+
+  console.log(`  └${bar}┘\n`);
+}
+
+/**
+ * Runs a full round on ER: submits picks, waits, finalizes, prints outcome.
+ * Returns the updated lives map  { playerPubkey: lives }
+ */
+export async function runRound(
+  program: Program<DiamondArena>,
+  admin: anchor.web3.Keypair,
+  roomId: BN,
+  roundNum: number,
+  activePlayers: RoundPlayer[],
+  allPlayers: RoundPlayer[],
+  pdas: ReturnType<typeof buildAllPdas>
+): Promise<Map<string, number>> {
+  const picksStr = activePlayers.map((p) => `${p.name}=${p.pick}`).join("  ");
+  console.log(`\n${"━".repeat(56)}`);
+  console.log(`  ⚡ ROUND ${roundNum}   picks: ${picksStr}`);
+  console.log(`${"━".repeat(56)}`);
+
+  // 1. submit picks to ER
+  for (const p of activePlayers) {
+    const tx = await submitPickViaMagicRouter(
+      program,
+      p.keypair,
+      roomId,
+      roundNum,
+      p.pick
+    );
+    logTx(`${p.name} → pick ${p.pick}`, tx, "ER");
+  }
+
+  await wait(20000);
+
+  // 2. read picks + lives before finalize
+  const picksFromER = new Map<string, number | null>();
+  const livesBeforeFinalize = new Map<string, number>();
+
+  for (const p of allPlayers) {
+    const key = p.keypair.publicKey.toBase58();
+
+    const choicePda = getPlayerRoundChoicePda(
+      roomId,
+      p.keypair.publicKey,
+      program
+    );
+
+    const choice = await getPlayerRoundChoiceFromER(
+      erProvider.connection,
+      program,
+      choicePda
+    );
+    picksFromER.set(key, choice?.pick ?? null);
+
+    const state = await getPlayerStateFromER(
+      erProvider.connection,
+      program,
+      pdas.playerStates[key]
+    );
+    livesBeforeFinalize.set(key, state?.lives ?? 0);
+  }
+
+  // 3. finalize on ER
+  const finalTx = await finalizeRoundViaMagicRouter(
+    program,
+    admin,
+    roomId,
+    activePlayers.map((p) => p.keypair),
+    roundNum,
+    pdas
+  );
+  logTx(`Round ${roundNum} finalized`, finalTx, "ER");
+
+  await wait(500);
+
+  // 4. read lives + status after finalize
+  const livesAfterFinalize = new Map<string, number>();
+  const statusAfterFinalize = new Map<string, string>();
+
+  for (const p of allPlayers) {
+    const key = p.keypair.publicKey.toBase58();
+
+    const state = await getPlayerStateFromER(
+      erProvider.connection,
+      program,
+      pdas.playerStates[key]
+    );
+
+    livesAfterFinalize.set(key, state?.lives ?? 0);
+    statusAfterFinalize.set(key, getStatusName(state?.status ?? {}));
+  }
+
+  // 5. display using ER data only
+  await displayRoundOutcomeFromER(
+    program,
+    roomId,
+    allPlayers,
+    pdas.room,
+    picksFromER,
+    livesBeforeFinalize,
+    livesAfterFinalize,
+    statusAfterFinalize
+  );
+
+  return livesAfterFinalize;
+}
+
 export async function finalizeRoundViaMagicRouter(
   program: Program<DiamondArena>,
   signer: anchor.web3.Keypair,
@@ -190,21 +334,17 @@ export async function finalizeRoundViaMagicRouter(
     .remainingAccounts(remainingAccounts)
     .instruction();
 
-  const latestBlockhash = await providerEphemeralRollup.getLatestBlockhash();
+  const latestBlockhash = await erProvider.connection.getLatestBlockhash();
 
   const tx = new Transaction().add(ix);
   tx.feePayer = signer.publicKey;
   tx.recentBlockhash = latestBlockhash.blockhash;
 
-  const signature = await providerEphemeralRollup.sendTransaction(
-    tx,
-    [signer],
-    {
-      skipPreflight: true,
-    }
-  );
+  const signature = await erProvider.connection.sendTransaction(tx, [signer], {
+    skipPreflight: true,
+  });
 
-  await providerEphemeralRollup.confirmTransaction({
+  await erProvider.connection.confirmTransaction({
     signature,
     ...latestBlockhash,
   });
@@ -325,21 +465,17 @@ export async function submitPickViaMagicRouter(
     })
     .instruction();
 
-  const latestBlockhash = await providerEphemeralRollup.getLatestBlockhash();
+  const latestBlockhash = await erProvider.connection.getLatestBlockhash();
 
   const tx = new Transaction().add(ix);
   tx.feePayer = signer.publicKey;
   tx.recentBlockhash = latestBlockhash.blockhash;
 
-  const signature = await providerEphemeralRollup.sendTransaction(
-    tx,
-    [signer],
-    {
-      skipPreflight: true,
-    }
-  );
+  const signature = await erProvider.connection.sendTransaction(tx, [signer], {
+    skipPreflight: true,
+  });
 
-  await providerEphemeralRollup.confirmTransaction({
+  await erProvider.connection.confirmTransaction({
     signature,
     ...latestBlockhash,
   });
@@ -433,7 +569,7 @@ export async function startMatchViaMagicRouter(
     })
     .instruction();
 
-  const latestBlockhash = await providerEphemeralRollup.getLatestBlockhash();
+  const latestBlockhash = await erProvider.connection.getLatestBlockhash();
 
   // Build transaction
   const tx = new Transaction().add(startMatchIx);
@@ -441,20 +577,22 @@ export async function startMatchViaMagicRouter(
   tx.feePayer = signer.publicKey;
   tx.recentBlockhash = latestBlockhash.blockhash;
 
-  const signature = await providerEphemeralRollup.sendTransaction(
-    tx,
-    [signer],
-    {
-      skipPreflight: true,
-    }
-  );
+  const signature = await erProvider.connection.sendTransaction(tx, [signer], {
+    skipPreflight: true,
+  });
 
-  await providerEphemeralRollup.confirmTransaction({
+  await erProvider.connection.confirmTransaction({
     signature,
     ...latestBlockhash,
   });
 
   return signature;
+}
+
+/** Returns a random pick in [min, max] rounded to nearest step. */
+export function randomPick(min = 10, max = 90, step = 5): number {
+  const steps = Math.floor((max - min) / step) + 1;
+  return min + Math.floor(Math.random() * steps) * step;
 }
 
 // Check player lives
@@ -476,20 +614,6 @@ export async function getPlayerStatus(
   if (state.status.eliminated) return "eliminated";
   if (state.status.winner) return "winner";
   return "unknown";
-}
-
-// Print game state
-export function printState(
-  round: number,
-  players: Array<{ name: string; lives: number }>
-) {
-  console.log("\n================================");
-  console.log(`Round ${round}`);
-  console.log("================================");
-  for (const p of players) {
-    console.log(`  ${p.name}: ${p.lives} lives`);
-  }
-  console.log("================================\n");
 }
 
 // Print final results
@@ -823,65 +947,91 @@ export async function displayRoundOutcomeFromER(
   program: Program<DiamondArena>,
   roomId: BN,
   players: Array<{ name: string; keypair: anchor.web3.Keypair }>,
-  roomPda: PublicKey
+  roomPda: PublicKey,
+  picksFromER: Map<string, number | null>,
+  livesBefore: Map<string, number>,
+  livesAfter: Map<string, number>,
+  statusAfter: Map<string, string>
 ) {
-  const room = await getRoomFromER(providerEphemeralRollup, program, roomPda);
-
-  console.log("\n╔════════════════════════════════════════════════════════╗");
-  console.log(`║ ROUND ${room.currentRound} SUMMARY`.padEnd(57) + "║");
-  console.log("╠════════════════════════════════════════════════════════╣");
+  const room = await getRoomFromER(erProvider.connection, program, roomPda);
 
   const rows: Array<{
     name: string;
-    pick: string;
-    lives: number;
+    pick: number | null;
+    before: number;
+    after: number;
+    livesLost: number;
     status: string;
   }> = [];
 
   for (const p of players) {
-    const choicePda = getPlayerRoundChoicePda(
-      roomId,
-      p.keypair.publicKey,
-      program
-    );
-    const statePda = getPlayerStatePda(roomId, p.keypair.publicKey, program);
+    const key = p.keypair.publicKey.toBase58();
 
-    const choice = await getPlayerRoundChoiceFromER(
-      providerEphemeralRollup,
-      program,
-      choicePda
-    );
-
-    const state = await getPlayerStateFromER(
-      providerEphemeralRollup,
-      program,
-      statePda
-    );
+    const before = livesBefore.get(key) ?? 0;
+    const after = livesAfter.get(key) ?? 0;
 
     rows.push({
       name: p.name,
-      pick: choice?.pick == null ? "None" : String(choice.pick),
-      lives: state?.lives ?? -1,
-      status: getStatusName(state?.status ?? {}),
+      pick: picksFromER.get(key) ?? null,
+      before,
+      after,
+      livesLost: before - after,
+      status: statusAfter.get(key) ?? "UNKNOWN",
     });
   }
 
-  const maxLives = Math.max(...rows.map((r) => r.lives));
-  const winners = rows.filter((r) => r.lives === maxLives);
+  const displayedRound = room.status?.finished
+    ? room.currentRound
+    : room.currentRound - 1;
+
+  console.log("\n" + "═".repeat(66));
+  console.log(`  ⚡ ROUND ${displayedRound} RESULT         [Ephemeral Rollup]`);
+  console.log("═".repeat(66));
+  console.log(
+    `  ${"Player".padEnd(10)} ${"Pick".padEnd(6)} ${"Before".padEnd(
+      8
+    )} ${"After".padEnd(8)} ${"Status".padEnd(12)} Outcome`
+  );
+  console.log("─".repeat(66));
 
   for (const row of rows) {
-    const lostLives = maxLives - row.lives;
-    const outcome = winners.some((w) => w.name === row.name)
-      ? "ROUND WINNER"
-      : `Lost ${lostLives} life/lives`;
+    const wasActive = row.before > 0;
+    const pickStr =
+      row.pick === null ? "—".padEnd(4) : String(row.pick).padEnd(4);
+
+    const beforeHp =
+      "♥".repeat(row.before) + "♡".repeat(Math.max(0, 3 - row.before));
+    const afterHp =
+      "♥".repeat(row.after) + "♡".repeat(Math.max(0, 3 - row.after));
+
+    let outcome: string;
+
+    if (!wasActive) {
+      outcome = "already eliminated";
+    } else if (row.livesLost === 0) {
+      outcome = "round winner";
+    } else if (row.livesLost === 2) {
+      outcome = "collision penalty (-2)";
+    } else if (row.after === 0 || row.status === "ELIMINATED") {
+      outcome = "eliminated";
+    } else if (row.livesLost === 1) {
+      outcome = "-1 life";
+    } else {
+      outcome = "no change";
+    }
 
     console.log(
-      `║ ${row.name.padEnd(10)} Pick: ${row.pick.padEnd(4)} Lives: ${String(
-        row.lives
-      ).padEnd(2)} Status: ${row.status.padEnd(10)} ${outcome}`.slice(0, 56) +
-        "║"
+      `  ${row.name.padEnd(10)} ${pickStr}   ${beforeHp.padEnd(
+        8
+      )} ${afterHp.padEnd(8)} ${row.status.padEnd(12)} ${outcome}`
     );
   }
 
-  console.log("╚════════════════════════════════════════════════════════╝\n");
+  console.log("─".repeat(66));
+  console.log(
+    `  Room status: ${JSON.stringify(room.status)} | currentRound on room: ${
+      room.currentRound
+    }`
+  );
+  console.log("═".repeat(66) + "\n");
 }

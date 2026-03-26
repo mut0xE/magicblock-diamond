@@ -1,3 +1,4 @@
+pub mod commit;
 pub mod create_room;
 pub mod delegate_player_choice;
 pub mod delegate_player_state;
@@ -8,7 +9,9 @@ pub mod join_room;
 pub mod settle_match;
 pub mod start_match;
 pub mod submit_pick;
+pub mod undelegate;
 
+pub use commit::*;
 pub use create_room::*;
 pub use delegate_player_choice::*;
 pub use delegate_player_state::*;
@@ -19,3 +22,4 @@ pub use join_room::*;
 pub use settle_match::*;
 pub use start_match::*;
 pub use submit_pick::*;
+pub use undelegate::*;
