@@ -2,10 +2,11 @@ use anchor_lang::{prelude::*, system_program::Transfer};
 
 use crate::{
     constants::{
-        DEFAULT_LIVES, DISCRIMINATOR, PLAYER_ROUND_CHOICE_SEED, PLAYER_STATE_SEED, ROOM_SEED,
-        VAULT_SEED,
+        DEFAULT_MINUS_POINTS, DISCRIMINATOR, PLAYER_ROUND_CHOICE_SEED, PLAYER_STATE_SEED,
+        ROOM_SEED, VAULT_SEED,
     },
     error::DiamondError,
+    events,
     state::{PlayerRoundChoice, PlayerState, PlayerStatus, Room, RoomStatus},
 };
 
@@ -75,7 +76,7 @@ impl<'info> JoinRoom<'info> {
         self.player_state.set_inner(PlayerState {
             room_id,
             player: self.player.key(),
-            lives: DEFAULT_LIVES,
+            minus_points: DEFAULT_MINUS_POINTS,
             status: PlayerStatus::Active,
             joined_at_round: 0,
             bump: bumps.player_state,
@@ -103,6 +104,12 @@ impl<'info> JoinRoom<'info> {
             revealed: false,
             bump: bumps.player_round_choice,
             timestamp: 0,
+        });
+
+        emit!(events::PlayerJoined {
+            room_id,
+            player: self.player.key(),
+            current_players: room.current_players,
         });
 
         Ok(())

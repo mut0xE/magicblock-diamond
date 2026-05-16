@@ -1,8 +1,9 @@
 use anchor_lang::prelude::*;
 
 use crate::{
-    constants::{DISCRIMINATOR, MAX_PLAYERS, MIN_PLAYERS, ROOM_SEED, VAULT_SEED},
+    constants::{DISCRIMINATOR, MAX_PLAYERS, MIN_ENTRY_FEE, MIN_PLAYERS, ROOM_SEED, VAULT_SEED},
     error::DiamondError,
+    events,
     state::{Room, RoomStatus},
 };
 
@@ -46,23 +47,39 @@ impl<'info> CreateRoom<'info> {
             DiamondError::InvalidMaxPlayers
         );
 
+        // Validate minimum entry fee
+        require!(entry_fee >= MIN_ENTRY_FEE, DiamondError::EntryFeeTooLow);
+
+        let now = Clock::get()?.unix_timestamp;
+
         // Initialize room
         self.room.set_inner(Room {
             creator: self.creator.key(),
             winner: None,
             room_id,
             entry_fee,
+            created_at: now,
             commit_deadline: 0,
             reveal_deadline: 0,
             prize_pool: 0,
             max_players,
             current_players: 0,
+            active_players: 0,
             current_round: 0,
+            eliminations: 0,
             status: RoomStatus::Waiting,
             bump: bumps.room,
             vault_bump: bumps.vault,
             settled: false,
         });
+
+        emit!(events::RoomCreated {
+            room_id,
+            creator: self.creator.key(),
+            entry_fee,
+            max_players,
+        });
+
         Ok(())
     }
 }

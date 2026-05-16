@@ -1,4 +1,5 @@
-pub mod commit;
+pub mod cancel_room;
+pub mod close_accounts;
 pub mod create_room;
 pub mod delegate_pda;
 pub mod finalize_round;
@@ -9,7 +10,8 @@ pub mod start_match;
 pub mod submit_pick;
 pub mod undelegate;
 
-pub use commit::*;
+pub use cancel_room::*;
+pub use close_accounts::*;
 pub use create_room::*;
 pub use delegate_pda::*;
 pub use finalize_round::*;

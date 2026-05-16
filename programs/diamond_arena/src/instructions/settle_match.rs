@@ -6,6 +6,7 @@ use crate::state::Config;
 use crate::{
     constants::{ROOM_SEED, VAULT_SEED},
     error::DiamondError,
+    events,
     state::{Room, RoomStatus},
 };
 
@@ -54,22 +55,21 @@ pub struct SettleMatch<'info> {
 impl<'info> SettleMatch<'info> {
     pub fn handler(&mut self, _room_id: u64) -> Result<()> {
         let room = &mut self.room;
-        let prize_pool = room.prize_pool;
         let fee_bps = self.config.fee_bps;
 
-        require!(prize_pool > 0, DiamondError::NoPrizeToClaim);
+        // Use actual vault balance (accounts for rent differences)
+        let vault_balance = self.vault.lamports();
+        require!(vault_balance > 0, DiamondError::NoPrizeToClaim);
         require!(!room.settled, DiamondError::AlreadySettled);
 
-        // Calculate fee and payout
-        let fee = room
-            .prize_pool
+        // Calculate fee and payout from actual vault balance
+        let fee = vault_balance
             .checked_mul(fee_bps as u64)
             .ok_or(DiamondError::MathOverflow)?
             .checked_div(10_000)
             .ok_or(DiamondError::MathOverflow)?;
 
-        let payout = room
-            .prize_pool
+        let payout = vault_balance
             .checked_sub(fee)
             .ok_or(DiamondError::MathOverflow)?;
 
@@ -109,9 +109,16 @@ impl<'info> SettleMatch<'info> {
         }
         room.settled = true;
 
+        emit!(events::MatchSettled {
+            room_id: room.room_id,
+            winner: self.winner.key(),
+            payout,
+            fee,
+        });
+
         msg!(
             "Match settled! Total: {} | Fee: {} | Payout: {}",
-            prize_pool,
+            vault_balance,
             fee,
             payout
         );

@@ -13,7 +13,8 @@ pub struct PlayerState {
     pub room_id: u64,
     pub player: Pubkey,
 
-    pub lives: u8,
+    /// Minus points: starts at 0, goes negative. Eliminated at -10.
+    pub minus_points: i8,
     pub status: PlayerStatus,
 
     pub joined_at_round: u8,

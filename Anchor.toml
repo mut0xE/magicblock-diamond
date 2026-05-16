@@ -4,6 +4,7 @@ package_manager = "yarn"
 [features]
 resolution = true
 skip-lint = false
+seeds = true
 
 [programs.devnet]
 diamond_arena = "CMZ49EUStUR9gj2PESATssmMu9hLPaUjhkgn8dmd85jY"

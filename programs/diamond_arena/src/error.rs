@@ -91,4 +91,34 @@ pub enum DiamondError {
 
     #[msg("Signer is not the program upgrade authority")]
     UpgradeAuthorityMismatch,
+
+    #[msg("Player state PDA does not match expected derivation")]
+    InvalidPlayerStatePda,
+
+    #[msg("Player choice PDA does not match expected derivation")]
+    InvalidPlayerChoicePda,
+
+    #[msg("Entry fee is below the minimum required")]
+    EntryFeeTooLow,
+
+    #[msg("All players were eliminated, no winner")]
+    AllPlayersEliminated,
+
+    #[msg("Not all active players are accounted for in remaining accounts")]
+    MissingActivePlayers,
+
+    #[msg("Room has been cancelled")]
+    RoomCancelled,
+
+    #[msg("Room is not cancelled, cannot claim refund")]
+    RoomNotCancelled,
+
+    #[msg("Room has not timed out yet")]
+    RoomNotTimedOut,
+
+    #[msg("Room is not in a terminal state (finished or cancelled)")]
+    RoomNotTerminal,
+
+    #[msg("Fee basis points too high")]
+    FeeBpsTooHigh,
 }

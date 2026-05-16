@@ -1,7 +1,7 @@
 use anchor_lang::prelude::*;
 
 use crate::{
-    constants::{CONFIG_SEED, DISCRIMINATOR},
+    constants::{CONFIG_SEED, DISCRIMINATOR, MAX_FEE_BPS},
     error::DiamondError,
     program::DiamondArena,
     state::Config,
@@ -43,6 +43,8 @@ impl<'info> InitializeConfig<'info> {
         fee_bps: u8,
         bumps: &InitializeConfigBumps,
     ) -> Result<()> {
+        require!(fee_bps <= MAX_FEE_BPS, DiamondError::FeeBpsTooHigh);
+
         let config = &mut self.config;
 
         config.set_inner(Config {

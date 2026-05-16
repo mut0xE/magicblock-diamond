@@ -1,7 +1,7 @@
 use crate::{
-    constants::{MAX_NUMBER, PLAYER_ROUND_CHOICE_SEED, ROOM_SEED},
+    constants::{MAX_NUMBER, PLAYER_ROUND_CHOICE_SEED, PLAYER_STATE_SEED, ROOM_SEED},
     error::DiamondError,
-    state::{PlayerRoundChoice, Room, RoomStatus},
+    state::{PlayerRoundChoice, PlayerState, PlayerStatus, Room, RoomStatus},
 };
 use anchor_lang::prelude::*;
 
@@ -18,13 +18,13 @@ pub struct SubmitPick<'info> {
         )]
     pub room: Account<'info, Room>,
 
-    // #[account(
-    //         mut,
-    //         seeds = [PLAYER_STATE_SEED, &room_id.to_le_bytes(), player.key().as_ref()],
-    //         bump = player_state.bump,
-    //         constraint = player_state.status == PlayerStatus::Active @ DiamondError::PlayerNotActive,
-    //     )]
-    // pub player_state: Account<'info, PlayerState>,
+    #[account(
+            seeds = [PLAYER_STATE_SEED, &room_id.to_le_bytes(), player.key().as_ref()],
+            bump = player_state.bump,
+            constraint = player_state.status == PlayerStatus::Active @ DiamondError::PlayerNotActive,
+        )]
+    pub player_state: Account<'info, PlayerState>,
+
     #[account(
           mut,
            seeds = [
@@ -47,7 +47,11 @@ impl<'info> SubmitPick<'info> {
         let now = Clock::get()?.unix_timestamp;
         require!(now <= room.commit_deadline, DiamondError::CommitPhaseOver);
 
-        require!(choice.round != round, DiamondError::AlreadyCommitted);
+        // Prevent double-commit for the same round
+        require!(
+            !(choice.round == round && choice.committed),
+            DiamondError::AlreadyCommitted
+        );
 
         choice.committed = true;
         choice.pick = Some(pick);

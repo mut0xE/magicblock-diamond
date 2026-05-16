@@ -4,6 +4,7 @@ use ephemeral_rollups_sdk::anchor::ephemeral;
 declare_id!("CMZ49EUStUR9gj2PESATssmMu9hLPaUjhkgn8dmd85jY");
 mod constants;
 mod error;
+mod events;
 mod helper;
 mod instructions;
 mod state;
@@ -15,7 +16,7 @@ pub mod diamond_arena {
 
     use super::*;
 
-    pub fn initialze_config(
+    pub fn initialize_config(
         ctx: Context<InitializeConfig>,
         treasury: Pubkey,
         fee_bps: u8,
@@ -56,23 +57,20 @@ pub mod diamond_arena {
         ctx.accounts.handler(room_id)
     }
 
-    // pub fn delegate_room(ctx: Context<DelegateInput>, input: DelegateTarget) -> Result<()> {
-    //     delegate(ctx, input)
-    // }
+    pub fn cancel_room(ctx: Context<CancelRoom>, room_id: u64) -> Result<()> {
+        ctx.accounts.handler(room_id)
+    }
 
-    // pub fn delegate_player_state(ctx: Context<DelegateInput>, input: DelegateTarget) -> Result<()> {
-    //     delegate(ctx, input)
-    // }
+    pub fn claim_refund(ctx: Context<ClaimRefund>, room_id: u64) -> Result<()> {
+        ctx.accounts.handler(room_id)
+    }
+
+    pub fn close_player_accounts(ctx: Context<ClosePlayerAccounts>, room_id: u64) -> Result<()> {
+        ctx.accounts.handler(room_id)
+    }
 
     pub fn delegate_input(ctx: Context<DelegateInput>, input: DelegateTarget) -> Result<()> {
         delegate(ctx, input)
-    }
-
-    pub fn commit<'info>(
-        ctx: Context<'_, '_, '_, 'info, CommitAndUndelegate<'info>>,
-        room_id: u64,
-    ) -> Result<()> {
-        commit_handler(ctx, room_id)
     }
 
     pub fn undelegate<'info>(

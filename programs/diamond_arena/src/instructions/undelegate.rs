@@ -1,10 +1,12 @@
+use anchor_lang::prelude::*;
+use ephemeral_rollups_sdk::anchor::commit;
+use ephemeral_rollups_sdk::ephem::MagicIntentBundleBuilder;
+
 use crate::{
     constants::ROOM_SEED,
     error::DiamondError,
     state::{Room, RoomStatus},
 };
-use anchor_lang::prelude::*;
-use ephemeral_rollups_sdk::{anchor::commit, ephem::commit_and_undelegate_accounts};
 
 #[commit]
 #[derive(Accounts)]
@@ -24,20 +26,20 @@ pub struct Undelegate<'info> {
 
 pub fn undelegate_handler<'info>(
     ctx: Context<'_, '_, '_, 'info, Undelegate<'info>>,
-    _auction_id: u64,
+    _room_id: u64,
 ) -> Result<()> {
-    let room_info = &ctx.accounts.room.to_account_info();
-    let mut accounts_to_undelegate: Vec<&AccountInfo<'info>> = Vec::new();
-    accounts_to_undelegate.push(room_info);
-
+    let mut accounts_to_undelegate = vec![ctx.accounts.room.to_account_info()];
     for acc in ctx.remaining_accounts.iter() {
-        accounts_to_undelegate.push(acc);
+        accounts_to_undelegate.push(acc.to_account_info());
     }
-    commit_and_undelegate_accounts(
-        &ctx.accounts.payer,
-        accounts_to_undelegate,
-        &ctx.accounts.magic_context,
-        &ctx.accounts.magic_program,
-    )?;
+
+    MagicIntentBundleBuilder::new(
+        ctx.accounts.payer.to_account_info(),
+        ctx.accounts.magic_context.to_account_info(),
+        ctx.accounts.magic_program.to_account_info(),
+    )
+    .commit_and_undelegate(&accounts_to_undelegate)
+    .build_and_invoke()?;
+
     Ok(())
 }
