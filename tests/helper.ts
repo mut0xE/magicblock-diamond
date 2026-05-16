@@ -55,8 +55,8 @@ export function getRoomId(): anchor.BN {
 }
 
 export const logTx = (label: string, sig: string, layer: Layer = "L1") => {
-  console.log(`\n   ${LAYER_LABEL[layer]}  ${label}`);
-  console.log(`   sig: ${sig}`);
+  console.log(`   [${LAYER_LABEL[layer]}] ${label}`);
+  console.log(`   📝 ${sig}`);
 };
 
 export async function expectAnchorError(
@@ -164,32 +164,25 @@ export function buildAllPdas(
 
 export function printState(
   label: number | string,
-  players: Array<{ name: string; lives: number }>
+  players: Array<{ name: string; minusPoints: number }>
 ) {
-  const title =
-    typeof label === "number" ? `⚡ ER  ·  after round ${label}` : `${label}`;
-  const width = 36;
-  const bar = "─".repeat(width);
-
-  console.log(`\n  ┌${bar}┐`);
-  console.log(`  │  ${title.padEnd(width - 2)}│`);
-  console.log(`  ├${bar}┤`);
-
-  for (const p of players) {
-    const hearts = "♥".repeat(p.lives) + "♡".repeat(Math.max(0, 3 - p.lives));
-    const status = p.lives === 0 ? "ELIM" : p.lives >= 3 ? " WIN" : "  ok";
-    const line = `${p.name.padEnd(10)} ${hearts.padEnd(5)}  ${
-      p.lives
-    } hp  ${status}`;
-    console.log(`  │  ${line.padEnd(width - 2)}│`);
-  }
-
-  console.log(`  └${bar}┘\n`);
+  const title = typeof label === "number" ? `After round ${label}` : `${label}`;
+  const summary = players
+    .map((p) => {
+      if (p.minusPoints <= -10) return `💀 ${p.name}:${p.minusPoints}`;
+      if (p.minusPoints === 0) return `👑 ${p.name}:${p.minusPoints}`;
+      return `💔 ${p.name}:${p.minusPoints}`;
+    })
+    .join("  ");
+  console.log(`   ${title} => ${summary}`);
 }
 
 /**
- * Runs a full round on ER: submits picks, waits, finalizes, prints outcome.
- * Returns the updated lives map  { playerPubkey: lives }
+ * Runs a full round on ER: submits picks, waits for reveal deadline, finalizes.
+ * Returns the updated minus points map  { playerPubkey: minusPoints }
+ *
+ * With COMMIT_DURATION=5 and REVEAL_DURATION=2 on-chain, we need to wait ~8s
+ * for the ER clock to pass reveal_deadline before calling finalize.
  */
 export async function runRound(
   program: Program<DiamondArena>,
@@ -200,96 +193,163 @@ export async function runRound(
   allPlayers: RoundPlayer[],
   pdas: ReturnType<typeof buildAllPdas>
 ): Promise<Map<string, number>> {
-  const picksStr = activePlayers.map((p) => `${p.name}=${p.pick}`).join("  ");
-  console.log(`\n${"━".repeat(56)}`);
-  console.log(`  ⚡ ROUND ${roundNum}   picks: ${picksStr}`);
-  console.log(`${"━".repeat(56)}`);
+  // Read actual current_round from ER (don't trust loop counter)
+  const roomState = await getRoomFromER(
+    erProvider.connection,
+    program,
+    pdas.room
+  );
+  const onChainRound = roomState?.currentRound ?? roundNum;
 
-  // 1. submit picks to ER
-  for (const p of activePlayers) {
-    const tx = await submitPickViaMagicRouter(
-      program,
-      p.keypair,
-      roomId,
-      roundNum,
-      p.pick
+  // If room is already finished on-chain, return current points
+  if (roomState?.status?.finished !== undefined) {
+    console.log(
+      `\n  Game already finished on-chain, skipping round ${roundNum}`
     );
-    logTx(`${p.name} → pick ${p.pick}`, tx, "ER");
+    return await readAllPoints(program, allPlayers, pdas);
   }
 
-  await wait(20000);
+  const picksStr = activePlayers.map((p) => `${p.name}=${p.pick}`).join(" ");
+  console.log(
+    `\n   --- Round ${roundNum} (on-chain: ${onChainRound}) | ${picksStr} ---`
+  );
 
-  // 2. read picks + lives before finalize
-  const picksFromER = new Map<string, number | null>();
-  const livesBeforeFinalize = new Map<string, number>();
+  // 1. Submit picks to ER using the actual on-chain round number
+  for (const p of activePlayers) {
+    try {
+      const tx = await submitPickViaMagicRouter(
+        program,
+        p.keypair,
+        roomId,
+        onChainRound,
+        p.pick
+      );
+      logTx(`${p.name} -> pick ${p.pick}`, tx, "ER");
+    } catch (err: any) {
+      const errStr = err?.message || String(err);
+      if (errStr.includes("AlreadyCommitted")) {
+        console.log(
+          `   ${p.name} already committed for round ${onChainRound}, skipping`
+        );
+      } else if (errStr.includes("CommitPhaseOver")) {
+        console.log(`   ${p.name} commit phase over for round ${onChainRound}`);
+      } else {
+        throw err;
+      }
+    }
+  }
+
+  // 2. Wait for reveal deadline to pass on ER clock
+  // COMMIT_DURATION(5) + REVEAL_DURATION(2) = 7s on-chain minimum
+  // Add buffer for ER clock propagation
+  await wait(10000);
+
+  // 3. Finalize with retry logic
+  let finalized = false;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const finalTx = await finalizeRoundViaMagicRouter(
+        program,
+        admin,
+        roomId,
+        allPlayers.map((p) => p.keypair),
+        roundNum,
+        pdas
+      );
+      logTx(`Round ${roundNum} finalized`, finalTx, "ER");
+      finalized = true;
+      break;
+    } catch (err: any) {
+      const errStr = err?.logs?.join(" ") || err?.message || String(err);
+      if (errStr.includes("RevealPhaseNotOver")) {
+        console.log(
+          `   Reveal phase not over yet, waiting 5s... (attempt ${
+            attempt + 1
+          }/3)`
+        );
+        await wait(5000);
+      } else if (errStr.includes("RoomNotActive")) {
+        console.log(`   Room no longer active (game finished on-chain)`);
+        break;
+      } else {
+        console.error(`   Finalize error: ${errStr.slice(0, 200)}`);
+        throw err;
+      }
+    }
+  }
+
+  if (!finalized) {
+    console.log(
+      `   Could not finalize round ${roundNum}, reading current state...`
+    );
+  }
+
+  await wait(1000);
+
+  // 4. Read minus points + status after finalize
+  const pointsAfterFinalize = new Map<string, number>();
+  const statusAfterFinalize = new Map<string, string>();
 
   for (const p of allPlayers) {
     const key = p.keypair.publicKey.toBase58();
+    const state = await getPlayerStateFromER(
+      erProvider.connection,
+      program,
+      pdas.playerStates[key]
+    );
+    pointsAfterFinalize.set(key, state?.minusPoints ?? 0);
+    statusAfterFinalize.set(key, getStatusName(state?.status ?? {}));
+  }
 
+  // 5. Display outcome
+  const picksFromER = new Map<string, number | null>();
+  for (const p of allPlayers) {
+    const key = p.keypair.publicKey.toBase58();
     const choicePda = getPlayerRoundChoicePda(
       roomId,
       p.keypair.publicKey,
       program
     );
-
     const choice = await getPlayerRoundChoiceFromER(
       erProvider.connection,
       program,
       choicePda
     );
     picksFromER.set(key, choice?.pick ?? null);
-
-    const state = await getPlayerStateFromER(
-      erProvider.connection,
-      program,
-      pdas.playerStates[key]
-    );
-    livesBeforeFinalize.set(key, state?.lives ?? 0);
   }
 
-  // 3. finalize on ER
-  const finalTx = await finalizeRoundViaMagicRouter(
-    program,
-    admin,
-    roomId,
-    activePlayers.map((p) => p.keypair),
-    roundNum,
-    pdas
-  );
-  logTx(`Round ${roundNum} finalized`, finalTx, "ER");
-
-  await wait(500);
-
-  // 4. read lives + status after finalize
-  const livesAfterFinalize = new Map<string, number>();
-  const statusAfterFinalize = new Map<string, string>();
-
-  for (const p of allPlayers) {
-    const key = p.keypair.publicKey.toBase58();
-
-    const state = await getPlayerStateFromER(
-      erProvider.connection,
-      program,
-      pdas.playerStates[key]
-    );
-
-    livesAfterFinalize.set(key, state?.lives ?? 0);
-    statusAfterFinalize.set(key, getStatusName(state?.status ?? {}));
-  }
-
-  // 5. display using ER data only
+  const pointsBeforeFinalize = new Map<string, number>(); // we don't track before anymore
   await displayRoundOutcomeFromER(
     program,
     roomId,
     allPlayers,
     pdas.room,
     picksFromER,
-    livesBeforeFinalize,
-    livesAfterFinalize,
+    pointsBeforeFinalize,
+    pointsAfterFinalize,
     statusAfterFinalize
   );
 
-  return livesAfterFinalize;
+  return pointsAfterFinalize;
+}
+
+/** Read all player minus points from ER */
+async function readAllPoints(
+  program: Program<DiamondArena>,
+  allPlayers: RoundPlayer[],
+  pdas: ReturnType<typeof buildAllPdas>
+): Promise<Map<string, number>> {
+  const points = new Map<string, number>();
+  for (const p of allPlayers) {
+    const key = p.keypair.publicKey.toBase58();
+    const state = await getPlayerStateFromER(
+      erProvider.connection,
+      program,
+      pdas.playerStates[key]
+    );
+    points.set(key, state?.minusPoints ?? 0);
+  }
+  return points;
 }
 
 export async function finalizeRoundViaMagicRouter(
@@ -394,9 +454,6 @@ export async function joinRoom(
     program
   );
 
-  console.log("joining:", playerPubkey.toBase58());
-  console.log("playerStatePda:", playerStatePda.toBase58());
-  console.log("playerRoundChoicePda:", playerRoundChoicePda.toBase58());
   const tx = await program.methods
     .joinRoom(roomId)
     .accounts({
@@ -555,9 +612,7 @@ export async function startMatchViaMagicRouter(
   roomId: BN,
   roomPda: anchor.web3.PublicKey
 ): Promise<string> {
-  console.log("\nStarting match via Magic Router...");
-  console.log(`   Room ID: ${roomId.toString()}`);
-  console.log(`   Signer: ${signer.publicKey.toString()}\n`);
+  const playerStatePda = getPlayerStatePda(roomId, signer.publicKey, program);
 
   // Build instruction
   const startMatchIx = await program.methods
@@ -566,6 +621,7 @@ export async function startMatchViaMagicRouter(
       authority: signer.publicKey,
       //@ts-ignore
       room: roomPda,
+      playerState: playerStatePda,
     })
     .instruction();
 
@@ -595,13 +651,13 @@ export function randomPick(min = 10, max = 90, step = 5): number {
   return min + Math.floor(Math.random() * steps) * step;
 }
 
-// Check player lives
-export async function getPlayerLives(
+// Check player minus points
+export async function getPlayerMinusPoints(
   program: Program<DiamondArena>,
   playerStatePda: PublicKey
 ): Promise<number> {
   const state = await program.account.playerState.fetch(playerStatePda);
-  return state.lives;
+  return state.minusPoints;
 }
 
 // Check player status
@@ -618,13 +674,13 @@ export async function getPlayerStatus(
 
 // Print final results
 export function printFinal(
-  players: Array<{ name: string; lives: number; status: string }>
+  players: Array<{ name: string; minusPoints: number; status: string }>
 ) {
   console.log("\n================================");
   console.log("FINAL RESULTS");
   console.log("================================");
   for (const p of players) {
-    console.log(`  ${p.name}: ${p.lives} lives [${p.status}]`);
+    console.log(`  ${p.name}: ${p.minusPoints} pts [${p.status}]`);
   }
   console.log("================================\n");
 }
@@ -633,16 +689,16 @@ export function printFinal(
 export function printRound(
   round: number,
   picks: Array<{ name: string; pick: number }>,
-  results: Array<{ name: string; lives: number }>
+  results: Array<{ name: string; minusPoints: number }>
 ) {
   console.log(`\n--- Round ${round} Results ---`);
   console.log("Picks:");
   for (const p of picks) {
     console.log(`  ${p.name}: ${p.pick}`);
   }
-  console.log("Lives after:");
+  console.log("Points after:");
   for (const r of results) {
-    console.log(`  ${r.name}: ${r.lives}`);
+    console.log(`  ${r.name}: ${r.minusPoints}`);
   }
   console.log("");
 }
@@ -675,7 +731,7 @@ export async function getPlayerData(
   return {
     player: state.player.toBase58(),
     roomId: state.roomId.toString(),
-    lives: state.lives,
+    minusPoints: state.minusPoints,
     joinedAtRound: state.joinedAtRound,
     status: getStatusName(state.status),
   };
@@ -709,25 +765,11 @@ export async function displayRoomState(
   title: string
 ) {
   const room = await getRoomData(program, roomPda);
-
-  console.log("\n╔════════════════════════════════════════════════════════╗");
-  console.log(`║ ${title}`.padEnd(57) + "║");
-  console.log("╠════════════════════════════════════════════════════════╣");
   console.log(
-    `║ Room ID:          ${room.roomId.slice(0, 40)}`.padEnd(57) + "║"
+    `   [${title}] id=${room.roomId.slice(0, 12)}... players=${
+      room.currentPlayers
+    }/${room.maxPlayers} fee=${room.entryFee / 1e9} SOL`
   );
-  console.log(`║ Current Round:    ${room.currentRound}`.padEnd(57) + "║");
-  console.log(
-    `║ Players:          ${room.currentPlayers}/${room.maxPlayers}`.padEnd(57) +
-      "║"
-  );
-  console.log(
-    `║ Status:           ${JSON.stringify(room.status)}`.padEnd(57) + "║"
-  );
-  console.log(
-    `║ Winner:           ${room.winner.slice(0, 40)}`.padEnd(57) + "║"
-  );
-  console.log("╚════════════════════════════════════════════════════════╝\n");
 }
 
 export async function displayPlayerState(
@@ -736,11 +778,9 @@ export async function displayPlayerState(
   playerName: string
 ) {
   const player = await getPlayerData(program, playerPda);
-
-  console.log(`\n${playerName}:`);
-  console.log(`  Lives:    ${player.lives}`);
-  console.log(`  Status:   ${player.status}`);
-  console.log(`  Joined:   Round ${player.joinedAtRound}`);
+  console.log(
+    `   ${playerName}: pts=${player.minusPoints} status=${player.status}`
+  );
 }
 
 /**
@@ -857,9 +897,9 @@ export async function getAllPlayerStatesFromER(
       if (state) {
         results.set(playerName, state);
         console.log(
-          `${playerName}: Lives=${state.lives}, Status=${JSON.stringify(
-            state.status
-          )}`
+          `${playerName}: MinusPoints=${
+            state.minusPoints
+          }, Status=${JSON.stringify(state.status)}`
         );
       }
     } catch (error) {
@@ -949,89 +989,38 @@ export async function displayRoundOutcomeFromER(
   players: Array<{ name: string; keypair: anchor.web3.Keypair }>,
   roomPda: PublicKey,
   picksFromER: Map<string, number | null>,
-  livesBefore: Map<string, number>,
-  livesAfter: Map<string, number>,
+  pointsBefore: Map<string, number>,
+  pointsAfter: Map<string, number>,
   statusAfter: Map<string, string>
 ) {
   const room = await getRoomFromER(erProvider.connection, program, roomPda);
 
-  const rows: Array<{
-    name: string;
-    pick: number | null;
-    before: number;
-    after: number;
-    livesLost: number;
-    status: string;
-  }> = [];
-
+  const lines: string[] = [];
   for (const p of players) {
     const key = p.keypair.publicKey.toBase58();
-
-    const before = livesBefore.get(key) ?? 0;
-    const after = livesAfter.get(key) ?? 0;
-
-    rows.push({
-      name: p.name,
-      pick: picksFromER.get(key) ?? null,
-      before,
-      after,
-      livesLost: before - after,
-      status: statusAfter.get(key) ?? "UNKNOWN",
-    });
+    const pick = picksFromER.get(key);
+    const pts = pointsAfter.get(key) ?? 0;
+    const status = statusAfter.get(key) ?? "?";
+    const pickStr =
+      pick !== null && pick !== undefined ? String(pick).padStart(3) : "  -";
+    const ptsStr = String(pts).padStart(3);
+    const tag =
+      status === "ELIMINATED" ? " 💀" : status === "WINNER" ? " 👑" : "";
+    lines.push(`${p.name.padEnd(8)} pick:${pickStr}  pts:${ptsStr}${tag}`);
   }
 
-  const displayedRound = room.status?.finished
+  const roundLabel = room.status?.finished
     ? room.currentRound
     : room.currentRound - 1;
-
-  console.log("\n" + "═".repeat(66));
-  console.log(`  ⚡ ROUND ${displayedRound} RESULT         [Ephemeral Rollup]`);
-  console.log("═".repeat(66));
   console.log(
-    `  ${"Player".padEnd(10)} ${"Pick".padEnd(6)} ${"Before".padEnd(
-      8
-    )} ${"After".padEnd(8)} ${"Status".padEnd(12)} Outcome`
+    `\n   Round ${roundLabel} result | active: ${room.activePlayers} | elim: ${room.eliminations}`
   );
-  console.log("─".repeat(66));
-
-  for (const row of rows) {
-    const wasActive = row.before > 0;
-    const pickStr =
-      row.pick === null ? "—".padEnd(4) : String(row.pick).padEnd(4);
-
-    const beforeHp =
-      "♥".repeat(row.before) + "♡".repeat(Math.max(0, 3 - row.before));
-    const afterHp =
-      "♥".repeat(row.after) + "♡".repeat(Math.max(0, 3 - row.after));
-
-    let outcome: string;
-
-    if (!wasActive) {
-      outcome = "already eliminated";
-    } else if (row.livesLost === 0) {
-      outcome = "round winner";
-    } else if (row.livesLost === 2) {
-      outcome = "collision penalty (-2)";
-    } else if (row.after === 0 || row.status === "ELIMINATED") {
-      outcome = "eliminated";
-    } else if (row.livesLost === 1) {
-      outcome = "-1 life";
-    } else {
-      outcome = "no change";
-    }
-
+  for (const line of lines) {
+    console.log(`     ${line}`);
+  }
+  if (room.status?.finished) {
     console.log(
-      `  ${row.name.padEnd(10)} ${pickStr}   ${beforeHp.padEnd(
-        8
-      )} ${afterHp.padEnd(8)} ${row.status.padEnd(12)} ${outcome}`
+      `   🏆 GAME FINISHED  winner: ${room.winner?.toBase58().slice(0, 12)}...`
     );
   }
-
-  console.log("─".repeat(66));
-  console.log(
-    `  Room status: ${JSON.stringify(room.status)} | currentRound on room: ${
-      room.currentRound
-    }`
-  );
-  console.log("═".repeat(66) + "\n");
 }

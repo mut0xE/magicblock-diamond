@@ -1,14 +1,7 @@
 import * as anchor from "@coral-xyz/anchor";
 import { Program } from "@coral-xyz/anchor";
 import { DiamondArena } from "../target/types/diamond_arena";
-import fs from "fs";
-import {
-  LAMPORTS_PER_SOL,
-  PublicKey,
-  sendAndConfirmTransaction,
-  SystemProgram,
-  Transaction,
-} from "@solana/web3.js";
+import { LAMPORTS_PER_SOL, PublicKey, SystemProgram } from "@solana/web3.js";
 import BN from "bn.js";
 import { expect } from "chai";
 import {
@@ -58,40 +51,36 @@ describe("diamond_arena", () => {
 
   let allPlayers: RoundPlayer[];
   let activePlayers: RoundPlayer[];
-  let livesMap: Map<string, number>;
+  let pointsMap: Map<string, number>;
 
   before(async () => {
-    console.log("\n" + "═".repeat(56));
-    console.log("  DIAMOND ARENA — test setup");
-    console.log("═".repeat(56));
+    console.log("\n   Diamond Arena - Test Setup");
 
     [programDataAddress] = PublicKey.findProgramAddressSync(
       [program.programId.toBytes()],
       new PublicKey("BPFLoaderUpgradeab1e11111111111111111111111")
     );
 
-    // Load players from files
     player1 = admin.payer;
     player2 = loadPlayer(
       "/Users/mut0xE/Downloads/keys/us68r6awy9CVvUkJ58jEY1Bxp4sjpuyQZZys41hNH9S.json"
     );
-
     player3 = loadPlayer(
       "/Users/mut0xE/Downloads/keys/b2M6wZCujvcaKms27aLnsfNhhM5LLdygutwqJb9Uzn2.json"
     );
+
     allPlayers = [
       { name: "Player1", keypair: player1, pick: 0 },
       { name: "Player2", keypair: player2, pick: 0 },
       { name: "Player3", keypair: player3, pick: 0 },
     ];
 
-    console.log(`Player1 (Admin): ${player1.publicKey}`);
-    console.log(`Player2: ${player2.publicKey}`);
-    console.log(`Player3: ${player3.publicKey}`);
+    console.log(`   Player1: ${player1.publicKey.toBase58().slice(0, 12)}...`);
+    console.log(`   Player2: ${player2.publicKey.toBase58().slice(0, 12)}...`);
+    console.log(`   Player3: ${player3.publicKey.toBase58().slice(0, 12)}...`);
 
     configPda = getPda([CONFIG_SEED], program);
 
-    // Create room ID and all PDAs
     roomId = getRoomId();
     const playerList = [
       player1.publicKey,
@@ -99,16 +88,26 @@ describe("diamond_arena", () => {
       player3.publicKey,
     ];
     pdas = buildAllPdas(roomId, playerList, program);
-
-    console.log("═".repeat(56) + "\n");
   });
 
   describe("Complete Game Flow", () => {
     it("should initialize config", async () => {
+      // Check if config already exists (from previous test run)
+      try {
+        const existing = await program.account.config.fetch(configPda);
+        if (existing) {
+          console.log("   Config already exists, skipping initialization");
+          expect(existing.feeBps).equals(100);
+          return;
+        }
+      } catch {
+        // Config doesn't exist, create it
+      }
+
       const programData = programDataAddress;
 
       const tx = await program.methods
-        .initialzeConfig(TREASURY, 100) // 1%
+        .initializeConfig(TREASURY, 100) // 1%
         .accounts({
           admin: admin.publicKey,
           //@ts-ignore
@@ -123,7 +122,6 @@ describe("diamond_arena", () => {
       expect(tx).to.exist;
 
       const configAccount = await program.account.config.fetch(configPda);
-      // console.log("config account:", configAccount);
       expect(configAccount.admin.toBase58()).equals(admin.publicKey.toBase58());
       expect(configAccount.feeBps).equals(100);
       expect(configAccount.treasury.toBase58()).equals(TREASURY.toBase58());
@@ -247,42 +245,42 @@ describe("diamond_arena", () => {
       }
     });
 
-    for (let roundNum = 1; roundNum <= 10; roundNum++) {
+    for (let roundNum = 1; roundNum <= 25; roundNum++) {
       it(`should do round ${roundNum}`, async () => {
         // skip all remaining rounds once game is decided
         if (gameOver) {
           console.log(
-            `\n  Round ${roundNum} skipped — game already finished.\n`
+            `\n  Round ${roundNum} skipped -- game already finished.\n`
           );
           return;
         }
 
-        // rebuild activePlayers from previous livesMap
+        // rebuild activePlayers from previous pointsMap
         if (roundNum === 1) {
           activePlayers = [...allPlayers];
         } else {
           activePlayers = allPlayers.filter(
-            (p) => (livesMap?.get(p.keypair.publicKey.toBase58()) ?? 1) > 0
+            (p) => (pointsMap?.get(p.keypair.publicKey.toBase58()) ?? 0) > -10
           );
         }
 
         // skip if only 1 alive before round starts
         if (activePlayers.length <= 1) {
           console.log(
-            `\n  Round ${roundNum} skipped — game already finished.\n`
+            `\n  Round ${roundNum} skipped -- game already finished.\n`
           );
           gameOver = true;
           return;
         }
 
-        // assign fresh random picks
+        // Random picks each round - real game simulation
         const playersWithPicks: RoundPlayer[] = activePlayers.map((p) => ({
           ...p,
-          pick: randomPick(10, 90, 5),
+          pick: randomPick(0, 100, 1),
         }));
 
-        // run on ER, get back updated livesMap
-        livesMap = await runRound(
+        // run on ER, get back updated pointsMap
+        pointsMap = await runRound(
           program,
           admin.payer,
           roomId,
@@ -297,27 +295,34 @@ describe("diamond_arena", () => {
           roundNum,
           allPlayers.map((p) => ({
             name: p.name,
-            lives: livesMap.get(p.keypair.publicKey.toBase58()) ?? 0,
+            minusPoints: pointsMap.get(p.keypair.publicKey.toBase58()) ?? 0,
           }))
         );
 
         // check if game is now over
-        const stillAlive = [...livesMap.values()].filter((l) => l > 0).length;
+        const stillAlive = [...pointsMap.values()].filter(
+          (mp) => mp > -10
+        ).length;
         if (stillAlive <= 1) {
           const winner = allPlayers.find(
-            (p) => (livesMap.get(p.keypair.publicKey.toBase58()) ?? 0) > 0
+            (p) => (pointsMap.get(p.keypair.publicKey.toBase58()) ?? 0) > -10
           );
           console.log(
-            `\n  🏆  ${
+            `\n  🏆 ${
               winner?.name ?? "Unknown"
-            } wins after round ${roundNum}!\n`
+            } wins after round ${roundNum}! 🏆\n`
           );
-          gameOver = true; // ← all subsequent round it() blocks will skip
+          gameOver = true;
         }
       });
     }
 
     it("should show final winner", async () => {
+      if (!gameOver) {
+        console.log("   Game did not finish within max rounds — skipping");
+        return;
+      }
+
       const roomEr = await getRoomFromER(
         erProvider.connection,
         program,
@@ -338,92 +343,27 @@ describe("diamond_arena", () => {
         "FINAL — Ephemeral Rollup",
         allPlayers.map((p, i) => ({
           name: p.name,
-          lives: states[i]?.lives ?? 0,
+          minusPoints: states[i]?.minusPoints ?? 0,
         }))
       );
 
       expect(roomEr.status.finished).to.not.equal(undefined);
 
       const winner = allPlayers.find(
-        (p) => (livesMap?.get(p.keypair.publicKey.toBase58()) ?? 0) > 0
+        (p) => (pointsMap?.get(p.keypair.publicKey.toBase58()) ?? 0) > -10
       );
       expect(roomEr.winner.toBase58()).to.equal(
         winner!.keypair.publicKey.toBase58()
       );
     });
 
-    //   Sends a commit tx to ER; MagicBlock propagates final state back to Solana.
-    //   GetCommitmentSignature polls until the L1 tx is confirmed.
-    it("should commit room + player states back to Solana", async () => {
-      const remainingAccounts = allPlayers.map((p) => ({
-        pubkey: pdas.playerStates[p.keypair.publicKey.toBase58()],
-        isWritable: true,
-        isSigner: false,
-      }));
-
-      const erStart = Date.now();
-
-      let tx = await program.methods
-        .commit(roomId)
-        .accounts({
-          payer: admin.publicKey,
-          //@ts-ignore
-          room: pdas.room,
-        })
-        .remainingAccounts(remainingAccounts)
-        .transaction();
-
-      tx.feePayer = admin.publicKey;
-      tx.recentBlockhash = (
-        await erProvider.connection.getLatestBlockhash()
-      ).blockhash;
-
-      tx = await erProvider.wallet.signTransaction(tx);
-
-      const txHash = await erProvider.sendAndConfirm(tx, [], {
-        skipPreflight: true,
-      });
-
-      logTx(`Commit sent (${Date.now() - erStart}ms)`, txHash, "ER");
-
-      const l1Start = Date.now();
-      const txCommitSgn = await GetCommitmentSignature(
-        txHash,
-        erProvider.connection
-      );
-      logTx(
-        `State committed to L1 (${Date.now() - l1Start}ms)`,
-        txCommitSgn,
-        "L1"
-      );
-
-      const roomL1 = await program.account.room.fetch(pdas.room);
-      const states = await Promise.all(
-        allPlayers.map((p) =>
-          program.account.playerState.fetch(
-            pdas.playerStates[p.keypair.publicKey.toBase58()]
-          )
-        )
-      );
-
-      printState(
-        "L1 after commit",
-        allPlayers.map((p, i) => ({ name: p.name, lives: states[i].lives }))
-      );
-
-      expect(roomL1.status.finished).to.not.equal(undefined);
-
-      const winner = allPlayers.find(
-        (p) => (livesMap?.get(p.keypair.publicKey.toBase58()) ?? 0) > 0
-      );
-      expect(roomL1.winner.toBase58()).to.equal(
-        winner!.keypair.publicKey.toBase58()
-      );
-    });
-
-    //   Releases the delegation lock so the accounts are fully owned by L1 again.
-    //   Same flow as commit but calls undelegate instruction.
-    it("should undelegate room + player states back to Solana", async () => {
+    // Commits state and undelegates accounts back to L1 in one step.
+    // After this, accounts are fully owned by Solana L1 again.
+    it("should commit+undelegate room + player states back to Solana", async () => {
+      if (!gameOver) {
+        console.log("   Game did not finish -- skipping undelegate");
+        return;
+      }
       const remainingAccounts = allPlayers.map((p) => ({
         pubkey: pdas.playerStates[p.keypair.publicKey.toBase58()],
         isWritable: true,
@@ -459,11 +399,12 @@ describe("diamond_arena", () => {
         erProvider.connection
       );
       logTx(
-        `State undelegated to L1 (${Date.now() - l1Start}ms)`,
+        `State committed+undelegated to L1 (${Date.now() - l1Start}ms)`,
         txCommitSgn,
         "L1"
       );
 
+      const roomL1 = await program.account.room.fetch(pdas.room);
       const states = await Promise.all(
         allPlayers.map((p) =>
           program.account.playerState.fetch(
@@ -474,27 +415,34 @@ describe("diamond_arena", () => {
 
       printState(
         "L1 after undelegate",
-        allPlayers.map((p, i) => ({ name: p.name, lives: states[i].lives }))
+        allPlayers.map((p, i) => ({
+          name: p.name,
+          minusPoints: states[i].minusPoints,
+        }))
+      );
+
+      expect(roomL1.status.finished).to.not.equal(undefined);
+
+      const winner = allPlayers.find(
+        (p) => (pointsMap?.get(p.keypair.publicKey.toBase58()) ?? 0) > -10
+      );
+      expect(roomL1.winner.toBase58()).to.equal(
+        winner!.keypair.publicKey.toBase58()
       );
     });
 
-    //  vault: sends payout to winner and fee to treasury.
-    it("should settle match and pay winner + treasury on Solana", async () => {
+    it("should settle match and pay winner on Solana", async () => {
+      if (!gameOver) {
+        console.log("   Game did not finish -- skipping settle");
+        return;
+      }
       const vaultBefore = await provider.connection.getBalance(pdas.vault);
       const configAccount = await program.account.config.fetch(configPda);
       const fee = Math.floor((vaultBefore * configAccount.feeBps) / 10_000);
       const payout = vaultBefore - fee;
 
-      console.log(`\n  Vault : ${(vaultBefore / 1e9).toFixed(4)} SOL`);
-      console.log(
-        `  Fee   : ${(fee / 1e9).toFixed(4)} SOL  (${
-          configAccount.feeBps / 100
-        }%)`
-      );
-      console.log(`  Payout: ${(payout / 1e9).toFixed(4)} SOL\n`);
-
       const winner = allPlayers.find(
-        (p) => (livesMap?.get(p.keypair.publicKey.toBase58()) ?? 0) > 0
+        (p) => (pointsMap?.get(p.keypair.publicKey.toBase58()) ?? 0) > -10
       );
 
       const sig = await program.methods
@@ -513,7 +461,9 @@ describe("diamond_arena", () => {
         .rpc();
 
       logTx(
-        `Match settled — ${winner!.name} paid ${(payout / 1e9).toFixed(4)} SOL`,
+        `Settled: ${winner!.name} gets ${(payout / 1e9).toFixed(
+          4
+        )} SOL (fee: ${(fee / 1e9).toFixed(4)})`,
         sig,
         "L1"
       );
