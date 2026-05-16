@@ -62,12 +62,8 @@ describe("diamond_arena", () => {
     );
 
     player1 = admin.payer;
-    player2 = loadPlayer(
-      "/Users/mut0xE/Downloads/keys/us68r6awy9CVvUkJ58jEY1Bxp4sjpuyQZZys41hNH9S.json"
-    );
-    player3 = loadPlayer(
-      "/Users/mut0xE/Downloads/keys/b2M6wZCujvcaKms27aLnsfNhhM5LLdygutwqJb9Uzn2.json"
-    );
+    player2 = loadPlayer(process.env.PLAYER2_KEY_PATH!);
+    player3 = loadPlayer(process.env.PLAYER3_KEY_PATH!);
 
     allPlayers = [
       { name: "Player1", keypair: player1, pick: 0 },
